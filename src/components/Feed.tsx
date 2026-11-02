@@ -15,7 +15,6 @@ interface Props {
 
 type Result = { answer: Answer; picked?: number; typed?: string; xp?: number };
 
-const AUTO_NEXT_MS = 1100;
 const ROUND_BONUS_XP = 20;
 const LEAVE_MS = 260;
 const SWIPE_PX = 60;
@@ -37,7 +36,6 @@ export function Feed({ onClose }: Props) {
   const [combo, setCombo] = useState(0);
   const [leaving, setLeaving] = useState(false);
   const started = useRef(false);
-  const autoTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const touchY = useRef<number | null>(null);
   const stats = useRef<SessionStats>({ xp: 0, correct: 0, wrong: 0, maxCombo: 0 });
   const [showChest, setShowChest] = useState(false);
@@ -65,7 +63,6 @@ export function Feed({ onClose }: Props) {
   const shownAt = useRef(0);
 
   const goNext = useCallback(() => {
-    clearTimeout(autoTimer.current);
     sfx.swipe();
     setLeaving(true);
     setTimeout(() => {
@@ -132,7 +129,6 @@ export function Feed({ onClose }: Props) {
 
     setResult({ answer, xp, ...extra });
     if (getData().settings.listening) setTimeout(() => speak(say), 250);
-    if (answer === 'good') autoTimer.current = setTimeout(goNext, AUTO_NEXT_MS);
   };
 
   const finishIntro = () => {
@@ -158,7 +154,6 @@ export function Feed({ onClose }: Props) {
 
   const switchMode = (m: LearnMode) => {
     if (m === getData().settings.learnMode) return;
-    clearTimeout(autoTimer.current);
     updateSettings({ learnMode: m });
     session.current.offeredMore = false;
     load(); // cards of the other kind still queued are dropped by nextItem
