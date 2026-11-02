@@ -87,35 +87,45 @@ export async function importFromUrl(url: string): Promise<FoundText> {
   return { title, content, source: u.hostname.replace(/^www\./, '') };
 }
 
-// --- Klexikon: children's encyclopedia in simple German (CC BY-SA) ---
+// --- MediaWiki sites with free licenses (all answer CORS requests with origin=*) ---
 
-const KLEX = 'https://klexikon.zum.de/api.php';
+export interface Wiki {
+  name: string;
+  api: string;
+  license: string; // shown as the text's source (attribution)
+}
 
-async function klex(params: Record<string, string>) {
+export const KLEXIKON: Wiki = { name: 'Klexikon', api: 'https://klexikon.zum.de/api.php', license: 'CC BY-SA' };
+export const MINIKLEXIKON: Wiki = { name: 'MiniKlexikon', api: 'https://miniklexikon.zum.de/api.php', license: 'CC BY-SA 4.0' };
+export const WIKINEWS: Wiki = { name: 'Wikinews', api: 'https://de.wikinews.org/w/api.php', license: 'CC BY 2.5' };
+
+async function wiki(w: Wiki, params: Record<string, string>) {
   const q = new URLSearchParams({ ...params, format: 'json', formatversion: '2', origin: '*' });
-  const r = await fetch(`${KLEX}?${q}`);
-  if (!r.ok) throw new Error(`Klexikon не отвечает (ошибка ${r.status})`);
+  const r = await fetch(`${w.api}?${q}`);
+  if (!r.ok) throw new Error(`${w.name} не отвечает (ошибка ${r.status})`);
   return r.json();
 }
 
-export async function klexikonRandom(n = 12): Promise<string[]> {
-  const j = await klex({ action: 'query', list: 'random', rnnamespace: '0', rnlimit: String(n) });
+export async function wikiRandom(w: Wiki, n = 12): Promise<string[]> {
+  const j = await wiki(w, { action: 'query', list: 'random', rnnamespace: '0', rnlimit: String(n) });
   return j.query.random.map((p: { title: string }) => p.title);
 }
 
-export async function klexikonSearch(term: string): Promise<string[]> {
-  const j = await klex({ action: 'query', list: 'search', srsearch: term, srnamespace: '0', srlimit: '15' });
+export async function wikiSearch(w: Wiki, term: string): Promise<string[]> {
+  const j = await wiki(w, { action: 'query', list: 'search', srsearch: term, srnamespace: '0', srlimit: '15' });
   return j.query.search.map((p: { title: string }) => p.title);
 }
 
-export async function klexikonArticle(title: string): Promise<FoundText> {
-  const j = await klex({ action: 'parse', page: title, redirects: '1', prop: 'text' });
+export async function wikiArticle(w: Wiki, title: string): Promise<FoundText> {
+  const j = await wiki(w, { action: 'parse', page: title, redirects: '1', prop: 'text' });
   const doc = new DOMParser().parseFromString(j.parse.text, 'text/html');
+  // MiniKlexikon articles are short: keep shorter paragraphs there
+  const min = w === MINIKLEXIKON ? 15 : 40;
   const paras = [...doc.querySelectorAll('.mw-parser-output > p')]
     .map((p) => (p.textContent ?? '').replace(/\[\d+\]/g, '').replace(/\s+/g, ' ').trim())
-    .filter((p) => p.length > 40);
+    .filter((p) => p.length > min);
   if (!paras.length) throw new Error('В этой статье нет текста');
-  return { title: j.parse.title, content: paras.join('\n\n'), source: 'Klexikon · CC BY-SA' };
+  return { title: j.parse.title, content: paras.join('\n\n'), source: `${w.name} · ${w.license}` };
 }
 
 // --- Grimm fairy tales (public domain), bundled with the app ---

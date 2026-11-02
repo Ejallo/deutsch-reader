@@ -5,10 +5,13 @@ import {
   generate,
   grimmTales,
   importFromUrl,
-  klexikonArticle,
-  klexikonRandom,
-  klexikonSearch,
+  KLEXIKON,
   LEVELS,
+  MINIKLEXIKON,
+  WIKINEWS,
+  wikiArticle,
+  wikiRandom,
+  wikiSearch,
   readingMinutes,
   learningWordsByWeakness,
   MAX_WOVEN_WORDS,
@@ -17,6 +20,7 @@ import {
   type Length,
   type Level,
   type Tale,
+  type Wiki,
 } from '../lib/sources';
 
 interface Props {
@@ -275,44 +279,59 @@ function LinkTab({ onSave }: SaveProps) {
   );
 }
 
+type Shelf = 'mini' | 'klexikon' | 'news' | 'grimm';
+
+// Ordered from easiest to hardest
+const SHELVES: [Shelf, string][] = [
+  ['mini', 'MiniKlexikon · A1–A2'],
+  ['klexikon', 'Klexikon · A2–B1'],
+  ['news', 'Wikinews · B1–B2'],
+  ['grimm', 'Сказки Гримм · B2+'],
+];
+
+const WIKI_SHELVES: Record<Exclude<Shelf, 'grimm'>, { wiki: Wiki; hint: string; placeholder: string }> = {
+  mini: { wiki: MINIKLEXIKON, hint: 'Самые простые статьи: очень короткие предложения, базовые слова.', placeholder: 'Katze, Sonne, Schule…' },
+  klexikon: { wiki: KLEXIKON, hint: 'Детская энциклопедия на простом немецком: короткие предложения, понятные слова.', placeholder: 'Hund, Berlin, Fußball…' },
+  news: { wiki: WIKINEWS, hint: 'Новостные заметки из архива Wikinews: настоящий газетный язык. Новых статей там почти не пишут.', placeholder: 'Wahl, Fußball, Wetter…' },
+};
+
 function LibraryTab({ onSave }: SaveProps) {
-  const [shelf, setShelf] = useState<'klexikon' | 'grimm'>('klexikon');
+  const [shelf, setShelf] = useState<Shelf>('mini');
   return (
     <>
       <div className="chips">
-        <button className={shelf === 'klexikon' ? 'chip on' : 'chip'} onClick={() => setShelf('klexikon')}>
-          Klexikon · A2–B1
-        </button>
-        <button className={shelf === 'grimm' ? 'chip on' : 'chip'} onClick={() => setShelf('grimm')}>
-          Сказки Гримм · B2+
-        </button>
+        {SHELVES.map(([id, label]) => (
+          <button key={id} className={shelf === id ? 'chip on' : 'chip'} onClick={() => setShelf(id)}>
+            {label}
+          </button>
+        ))}
       </div>
-      {shelf === 'klexikon' ? <KlexikonShelf onSave={onSave} /> : <GrimmShelf onSave={onSave} />}
+      {shelf === 'grimm' ? <GrimmShelf onSave={onSave} /> : <WikiShelf key={shelf} {...WIKI_SHELVES[shelf]} onSave={onSave} />}
     </>
   );
 }
 
-function KlexikonShelf({ onSave }: SaveProps) {
+function WikiShelf({ wiki, hint, placeholder, onSave }: SaveProps & { wiki: Wiki; hint: string; placeholder: string }) {
   const [query, setQuery] = useState('');
   const [titles, setTitles] = useState<string[]>([]);
   const { busy, error, run } = useTask();
 
-  const random = () => run(async () => setTitles(await klexikonRandom()));
+  const random = () => run(async () => setTitles(await wikiRandom(wiki)));
   useEffect(() => {
     void random();
   }, []);
 
   return (
     <>
-      <p className="muted small">Детская энциклопедия на простом немецком: короткие предложения, понятные слова.</p>
+      <p className="muted small">{hint}</p>
       <form
         className="search-row"
         onSubmit={(e) => {
           e.preventDefault();
-          if (query.trim()) void run(async () => setTitles(await klexikonSearch(query.trim())));
+          if (query.trim()) void run(async () => setTitles(await wikiSearch(wiki, query.trim())));
         }}
       >
-        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Hund, Berlin, Fußball…" />
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={placeholder} />
         <button type="submit">Найти</button>
       </form>
       <button className="link" onClick={() => void random()}>
@@ -323,7 +342,7 @@ function KlexikonShelf({ onSave }: SaveProps) {
       <ul className="list">
         {titles.map((t) => (
           <li key={t}>
-            <button className="list-item" disabled={busy} onClick={() => void run(async () => onSave(await klexikonArticle(t)))}>
+            <button className="list-item" disabled={busy} onClick={() => void run(async () => onSave(await wikiArticle(wiki, t)))}>
               <span className="list-title">{t}</span>
             </button>
           </li>
