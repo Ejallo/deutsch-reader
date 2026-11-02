@@ -69,13 +69,60 @@ interface GenOptions {
   maxTokens?: number; // cuts off a model that starts repeating itself
 }
 
-const DEFAULT_TIMEOUT_MS = 45000;
+const DEFAULT_TIMEOUT_MS = 20000;
+const FALLBACK_TIMEOUT_MS = 15000;
+const MAX_FALLBACKS = 2;
 
+// Statuses where another model may well succeed: hung, retired, out of quota, overloaded
+const TRANSIENT = [408, 404, 429, 500, 503];
+const isTransient = (e: unknown) => e instanceof GeminiError && TRANSIENT.includes(e.status);
+
+/** Other stable models to try when the default one fails: Flash-Lite first (cheapest quota), newest first. */
+async function fallbackModels(key: string, current: string): Promise<string[]> {
+  const bad = badModels();
+  const byVersion = (a: ModelInfo, b: ModelInfo) => versionOf(b.name) - versionOf(a.name);
+  const stable = (await listModels(key)).filter((m) => !/preview|exp|latest/.test(m.name) && /gemini-\d/.test(m.name) && m.name.includes('flash'));
+  const lite = stable.filter((m) => m.name.includes('lite')).sort(byVersion);
+  const flash = stable.filter((m) => !m.name.includes('lite')).sort(byVersion);
+  return [...lite, ...flash]
+    .map((m) => m.name)
+    .filter((m) => m !== current && !bad[m])
+    .slice(0, MAX_FALLBACKS);
+}
+
+/** Calls the user's model; if it hangs or fails transiently, tries other models and keeps the one that works. */
 async function generate<T>(prompt: string, schema: object, opts: GenOptions = {}): Promise<T> {
   const key = getData().settings.geminiKey;
   if (!key) throw new GeminiError('Добавь ключ Gemini в настройках');
   if (!navigator.onLine) throw new GeminiError('Нет интернета');
-  const model = opts.model ?? (await ensureModel(key));
+  if (opts.model) return callModel<T>(key, opts.model, prompt, schema, opts);
+  const first = await ensureModel(key);
+  try {
+    return await callModel<T>(key, first, prompt, schema, opts);
+  } catch (e) {
+    if (!isTransient(e)) throw e;
+    markBad(first);
+    let others: string[] = [];
+    try {
+      others = await fallbackModels(key, first);
+    } catch {
+      throw e;
+    }
+    for (const model of others) {
+      try {
+        const r = await callModel<T>(key, model, prompt, schema, { ...opts, timeoutMs: opts.timeoutMs ?? FALLBACK_TIMEOUT_MS });
+        updateSettings({ geminiModel: model });
+        return r;
+      } catch (e2) {
+        if (!isTransient(e2)) throw e2;
+        markBad(model);
+      }
+    }
+    throw e;
+  }
+}
+
+async function callModel<T>(key: string, model: string, prompt: string, schema: object, opts: GenOptions): Promise<T> {
   // Some models occasionally never answer; don't let the app hang on them
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
@@ -105,11 +152,7 @@ async function generate<T>(prompt: string, schema: object, opts: GenOptions = {}
     const msg = (await r.json().catch(() => null))?.error?.message ?? '';
     throw new GeminiError(/API key/i.test(msg) ? 'Ключ Gemini не подходит' : `Gemini: ${msg || r.status}`);
   }
-  if (r.status === 404) {
-    // Model was retired: forget it so the next call picks a fresh one
-    if (!opts.model) updateSettings({ geminiModel: '' });
-    throw new GeminiError('Модель Gemini недоступна — повтори, выберу другую', 404);
-  }
+  if (r.status === 404) throw new GeminiError('Модель Gemini недоступна', 404);
   if (!r.ok) throw new GeminiError(`Gemini: ошибка ${r.status}`, r.status);
   const j = await r.json();
   const text = (j.candidates?.[0]?.content?.parts ?? []).map((p: { text?: string }) => p.text ?? '').join('');
@@ -254,6 +297,7 @@ export async function translateParagraph(text: string): Promise<string> {
   const r = await generate<{ translation: string }>(
     `Translate this German text into natural Russian. Keep paragraph breaks.\n\n${text}`,
     { type: 'OBJECT', properties: { translation: S('Russian translation') }, required: ['translation'] },
+    { timeoutMs: 30000 }, // long paragraphs take a while
   );
   remember(key, r.translation);
   return r.translation;
@@ -306,7 +350,7 @@ export async function generateText(level: string, topic: string, words: number, 
       properties: { title: S('Short German title'), text: S('The German text, paragraphs separated by \n\n') },
       required: ['title', 'text'],
     },
-    { temperature: 0.8 },
+    { temperature: 0.8, timeoutMs: 45000 }, // a whole text: slower than a word lookup
   );
 }
 
@@ -316,7 +360,7 @@ const CRITIC_TIMEOUT_MS = 25000;
 const BAD_KEY = 'criticBadModels';
 const BAD_TTL = 7 * 24 * 3600 * 1000;
 
-// Models that timed out or hit their quota are skipped for a week (per device)
+// Models that timed out or hit their quota are skipped for a week (per device), by the critic and by fallbacks
 function badModels(): Record<string, number> {
   try {
     const all = JSON.parse(localStorage.getItem(BAD_KEY) ?? '{}') as Record<string, number>;
