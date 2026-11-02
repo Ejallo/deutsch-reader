@@ -1085,3 +1085,58 @@ button.link.danger {
   color: var(--danger);
   text-decoration-color: var(--danger);
 }
+
+/* Add-text sources */
+.segmented {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  margin: 8px 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.segmented button {
+  flex: 1;
+  border: none;
+  background: none;
+  padding: 9px 4px;
+  font-size: 14px;
+  border-radius: 10px;
+  color: var(--muted);
+}
+.segmented button.on {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 8px;
+}
+.chip {
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 15px;
+  border-color: var(--border-strong);
+}
+.chip.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.search-row {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+}
+.search-row input {
+  flex: 1;
+}
+.text-source {
+  margin: -6px 0 12px;
+  font-size: 13px;
+  color: var(--muted);
+}

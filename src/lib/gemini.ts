@@ -197,3 +197,19 @@ export async function checkSentence(word: string, sentence: string): Promise<Sen
     },
   );
 }
+
+export async function generateText(level: string, topic: string, words: number, include: string[]): Promise<{ title: string; text: string }> {
+  const weave = include.length
+    ? `Naturally use these words (any grammatical form), each at least once: ${include.join(', ')}. `
+    : '';
+  return generate<{ title: string; text: string }>(
+    `Write an original German text for a learner at CEFR level ${level}. Topic: ${topic || 'everyday life'}. ` +
+      `About ${words} words, 2-4 paragraphs separated by blank lines, natural and interesting (a short story or a lively description). ` +
+      `Use vocabulary and grammar appropriate for ${level}. ${weave}Answer in JSON.`,
+    {
+      type: 'OBJECT',
+      properties: { title: S('Short German title'), text: S('The German text, paragraphs separated by \n\n') },
+      required: ['title', 'text'],
+    },
+  );
+}

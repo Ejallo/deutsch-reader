@@ -177,6 +177,7 @@ export function Reader({ id, onBack }: Props) {
         <SyncBadge />
       </header>
       <h2 className="reader-title">{doc.title}</h2>
+      {doc.source && <p className="text-source">{doc.source}</p>}
 
       <div
         ref={containerRef}
