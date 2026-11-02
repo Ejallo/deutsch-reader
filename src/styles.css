@@ -2146,3 +2146,8 @@ button.link.danger {
   font-size: 13px;
   flex-shrink: 0;
 }
+.rounds-pill {
+  --c: var(--mint);
+  height: 30px;
+  animation: pop 0.35s ease;
+}

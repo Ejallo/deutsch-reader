@@ -16,6 +16,7 @@ interface Props {
 type Result = { answer: Answer; picked?: number; typed?: string; xp?: number };
 
 const AUTO_NEXT_MS = 1100;
+const ROUND_BONUS_XP = 20;
 const LEAVE_MS = 260;
 const SWIPE_PX = 60;
 
@@ -40,6 +41,7 @@ export function Feed({ onClose }: Props) {
     setEmpty(r.item ? null : r.reason);
     setResult(null);
     setSpecialDone(false);
+    setRoundDone(0);
   }, []);
 
   useEffect(() => {
@@ -68,10 +70,17 @@ export function Feed({ onClose }: Props) {
   }, [item?.key]);
 
   /** The answer that completes today's goal extends the streak and queues a celebration. */
+  // After the daily goal, every next 20 cards is a bonus round with its own small reward
+  const [roundDone, setRoundDone] = useState(0);
   const countTowardGoal = () => {
-    if (todayProgress(getData()).reviewed === DAILY_GOAL) {
+    const n = todayProgress(getData()).reviewed;
+    if (n === DAILY_GOAL) {
       recordGoal();
       session.current.celebrateGoal = true;
+    } else if (n > DAILY_GOAL && n % DAILY_GOAL === 0) {
+      stats.current.xp += addXp(ROUND_BONUS_XP);
+      sfx.fanfare();
+      setRoundDone(n / DAILY_GOAL);
     }
   };
 
@@ -145,6 +154,7 @@ export function Feed({ onClose }: Props) {
   });
 
   const p = todayProgress(data);
+  const rounds = Math.floor(p.reviewed / DAILY_GOAL);
   const mult = comboMultiplier(combo);
 
   const renderCard = () => {
@@ -195,13 +205,20 @@ export function Feed({ onClose }: Props) {
         <button className="feed-close" onClick={onClose} aria-label="Закрыть">
           ✕
         </button>
-        <PBar value={p.reviewed / DAILY_GOAL} accent="mint" h={14} />
+        <PBar value={(p.reviewed % DAILY_GOAL) / DAILY_GOAL} accent="mint" h={14} />
+        {rounds > 0 && (
+          <span key={rounds} className="pill rounds-pill" title="Раунды за сегодня">
+            ✓×{rounds}
+          </span>
+        )}
         {mult > 1 ? (
           <span key={mult} className="pill combo-pill">
             ⚡×{combo}
           </span>
         ) : (
-          <span className={`feed-count ${p.reviewed >= DAILY_GOAL ? 'done' : ''}`}>{p.reviewed >= DAILY_GOAL ? `✓ ${p.reviewed}` : `${p.reviewed}/${DAILY_GOAL}`}</span>
+          <span className="feed-count">
+            {p.reviewed % DAILY_GOAL}/{DAILY_GOAL}
+          </span>
         )}
         <button
           className={`feed-listen ${data.settings.listening ? 'on' : ''}`}
@@ -217,14 +234,14 @@ export function Feed({ onClose }: Props) {
         {empty && <EmptyCard reason={empty} limit={data.settings.newPerDay} onClose={onClose} />}
         {item && (word || !needsWord) && item.format !== 'goal' && (
           <div key={item.key} className={`feed-card ${leaving ? 'leaving' : 'entering'} ${result ? `res-${result.answer}` : ''} fmt-${item.format}`}>
-            {result?.answer === 'good' && combo > 0 && combo % 3 === 0 && <Confetti />}
+            {((result?.answer === 'good' && combo > 0 && combo % 3 === 0) || roundDone > 0) && <Confetti />}
             {renderCard()}
             {!!result?.xp && <span className="xp-float">+{result.xp} XP</span>}
           </div>
         )}
       </div>
 
-      {result && word && <ResultSheet result={result} w={word} combo={combo} onNext={goNext} />}
+      {result && word && <ResultSheet result={result} w={word} combo={combo} round={roundDone} onNext={goNext} />}
 
       {item?.format === 'goal' && !showChest && (
         <LessonSummary
@@ -250,8 +267,9 @@ export function Feed({ onClose }: Props) {
 }
 
 /** Mint «Richtig!» or soft pink «Почти!» sheet under the card. */
-function ResultSheet({ result, w, combo, onNext }: { result: Result; w: Word; combo: number; onNext: () => void }) {
+function ResultSheet({ result, w, combo, round, onNext }: { result: Result; w: Word; combo: number; round: number; onNext: () => void }) {
   const mult = comboMultiplier(combo);
+  const roundLine = round > 0 ? `Раунд ${round} пройден! +${ROUND_BONUS_XP} XP` : '';
   if (result.answer === 'good') {
     return (
       <div className="result-sheet c-mint">
@@ -262,6 +280,7 @@ function ResultSheet({ result, w, combo, onNext }: { result: Result; w: Word; co
             <div className="sub">
               +{result.xp ?? 0} XP{mult > 1 ? ` · комбо ×${combo}` : ''}
             </div>
+            {roundLine && <div className="sub" style={{ fontWeight: 800, opacity: 1 }}>{roundLine}</div>}
           </div>
         </div>
         <button className="chunky c-card" onClick={onNext}>
@@ -276,6 +295,7 @@ function ResultSheet({ result, w, combo, onNext }: { result: Result; w: Word; co
       <div className="sub">
         Правильно: <b>{fullGerman(w)}</b> — {shortTranslation(w)}.{result.answer === 'again' ? ' Слово вернётся через пару карточек.' : ''}
       </div>
+      {roundLine && <div className="sub" style={{ fontWeight: 800, opacity: 1 }}>{roundLine}</div>}
       <button className="chunky c-card" onClick={onNext}>
         Понятно
       </button>
