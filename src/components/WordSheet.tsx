@@ -121,6 +121,24 @@ function WordBody({ state }: { state: Extract<SheetState, { kind: 'word' }> }) {
 }
 
 function PhraseBody({ state }: { state: Extract<SheetState, { kind: 'phrase' }> }) {
+  const data = useData();
+  const key = lemmaKey(state.phrase);
+  const savedPhrase = data.words[key] && !data.words[key].deleted;
+  const addPhrase = () => {
+    if (!state.info) return;
+    addXp(5);
+    saveWord(key, {
+      lemma: state.phrase,
+      article: '',
+      plural: '',
+      pos: 'фраза',
+      translation: state.info.translation,
+      meanings: '',
+      note: state.info.note,
+      example: state.sentence,
+      status: 'learning',
+    });
+  };
   return (
     <>
       <div className="sheet-head">
@@ -133,6 +151,15 @@ function PhraseBody({ state }: { state: Extract<SheetState, { kind: 'phrase' }> 
         <>
           <p className="sheet-tr">{state.info.translation}</p>
           {state.info.note && <p className="muted small">{state.info.note}</p>}
+          <div className="sheet-actions">
+            {savedPhrase ? (
+              <span className="tag tag-learning">В словаре</span>
+            ) : (
+              <button className="chunky c-peach" onClick={addPhrase}>
+                + В словарь <span className="xp">+5 XP</span>
+              </button>
+            )}
+          </div>
         </>
       ) : (
         !state.error && <p className="muted">Перевожу…</p>

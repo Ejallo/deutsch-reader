@@ -2166,3 +2166,50 @@ button.link.danger {
   color: var(--sub);
   text-align: center;
 }
+.dict-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+.dict-actions .chunky {
+  min-height: 42px;
+  font-size: 14px;
+}
+.dict-row.picked {
+  border-color: var(--pink);
+  background: color-mix(in oklch, var(--pink) 25%, var(--card));
+}
+.check {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  border: 2px solid var(--line);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+.check.on {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--bg);
+}
+.select-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(env(safe-area-inset-bottom) + 92px);
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 20px;
+  background: var(--card);
+  border-top: 1px solid var(--line);
+}
+.select-bar .chunky {
+  min-height: 44px;
+}

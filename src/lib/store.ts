@@ -266,6 +266,21 @@ export function linkForm(form: string, key: string) {
   update((d) => ({ ...d, forms: { ...d.forms, [form]: { lemmaKey: key, updatedAt: now() } } }));
 }
 
+/** Removes several words at once (one sync instead of many). */
+export function removeWords(keys: string[]) {
+  const t = now();
+  const drop = new Set(keys);
+  update((d) => {
+    const forms = { ...d.forms };
+    for (const [f, link] of Object.entries(forms)) {
+      if (drop.has(link.lemmaKey) && !link.deleted) forms[f] = { ...link, deleted: true, updatedAt: t };
+    }
+    const words = { ...d.words };
+    for (const k of drop) if (words[k]) words[k] = { ...words[k], deleted: true, updatedAt: t };
+    return { ...d, forms, words };
+  });
+}
+
 export function removeWord(key: string) {
   const t = now();
   update((d) => {

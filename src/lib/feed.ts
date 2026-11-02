@@ -212,13 +212,15 @@ function distance(a: string, b: string): number {
 }
 
 /** good = exact, hard = one typo ("almost"), again = wrong. A wrong or missing article is wrong. */
+const normalize = (s: string) => s.replace(/[.,!?;:„“"«»()]/g, '').trim().replace(/\s+/g, ' ');
+
 export function checkWritten(w: Word, input: string): Answer {
-  const parts = input.trim().replace(/\s+/g, ' ').split(' ');
+  const parts = normalize(input).split(' ');
   let typedArticle = '';
   if (['der', 'die', 'das'].includes(parts[0]?.toLowerCase())) typedArticle = parts.shift()!.toLowerCase();
   if (w.article && typedArticle !== w.article) return 'again';
   const typed = parts.join(' ').toLowerCase();
-  const target = w.lemma.toLowerCase();
+  const target = normalize(w.lemma).toLowerCase();
   if (typed === target) return 'good';
   if (target.length >= 4 && distance(typed, target) === 1) return 'hard';
   return 'again';

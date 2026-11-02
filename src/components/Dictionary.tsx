@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { removeWord, resetWordProgress, updateWord, useData, type Word } from '../lib/store';
+import { removeWord, removeWords, resetWordProgress, updateWord, useData, type Word } from '../lib/store';
+import { AddWordSheet } from './AddWordSheet';
 import { fullGerman, shortTranslation } from '../lib/feed';
 import { speak } from '../lib/tts';
 import { TabBar, type Tab } from './TabBar';
@@ -58,6 +59,9 @@ export function Dictionary({ onTab, onLearn }: Props) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [openId, setOpenId] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
 
   const words = useMemo(() => Object.values(data.words).filter((w) => !w.deleted), [data.words]);
 
@@ -114,6 +118,23 @@ export function Dictionary({ onTab, onLearn }: Props) {
         </div>
       </div>
 
+      <div className="dict-actions">
+        <button className="chunky c-lav" onClick={() => setAdding(true)}>
+          + Добавить
+        </button>
+        {words.length > 0 && (
+          <button
+            className={`chip ${selecting ? 'on' : ''}`}
+            onClick={() => {
+              setSelecting((v) => !v);
+              setPicked(new Set());
+            }}
+          >
+            {selecting ? 'Готово' : 'Выбрать'}
+          </button>
+        )}
+      </div>
+
       <input className="dict-search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="⌕  Поиск по-немецки или по-русски" />
       <div className="chips tight">
         {FILTERS.map(([id, label]) => (
@@ -126,7 +147,7 @@ export function Dictionary({ onTab, onLearn }: Props) {
 
       {words.length === 0 ? (
         <div className="empty">
-          <p>Словарь пуст. Открой текст, нажми на незнакомое слово и «Учить».</p>
+          <p>Словарь пуст. Нажми на незнакомое слово в тексте и «+ В словарь» — или добавь слово вручную.</p>
         </div>
       ) : shown.length === 0 ? (
         <p className="muted">Ничего не нашлось.</p>
@@ -134,7 +155,20 @@ export function Dictionary({ onTab, onLearn }: Props) {
         <ul className="dict-list">
           {shown.map((w) => (
             <li key={w.id}>
-              <button className="dict-row" onClick={() => setOpenId(w.id)}>
+              <button
+                className={`dict-row ${picked.has(w.id) ? 'picked' : ''}`}
+                onClick={() =>
+                  selecting
+                    ? setPicked((cur) => {
+                        const next = new Set(cur);
+                        if (next.has(w.id)) next.delete(w.id);
+                        else next.add(w.id);
+                        return next;
+                      })
+                    : setOpenId(w.id)
+                }
+              >
+                {selecting && <span className={`check ${picked.has(w.id) ? 'on' : ''}`}>{picked.has(w.id) ? '✓' : ''}</span>}
                 <span className={`art-bar ${articleClass(w.article)}`} />
                 <span className="dict-main">
                   <span className="dict-de">
@@ -159,6 +193,26 @@ export function Dictionary({ onTab, onLearn }: Props) {
         </ul>
       )}
 
+      {selecting && (
+        <div className="select-bar">
+          <button className="chip" onClick={() => setPicked(picked.size === shown.length ? new Set() : new Set(shown.map((w) => w.id)))}>
+            {picked.size === shown.length ? 'Снять все' : 'Выбрать все'}
+          </button>
+          <button
+            className="chunky c-pink"
+            disabled={picked.size === 0}
+            onClick={() => {
+              if (!confirm(`Удалить ${picked.size} из словаря?`)) return;
+              removeWords([...picked]);
+              setPicked(new Set());
+              setSelecting(false);
+            }}
+          >
+            Удалить {picked.size || ''}
+          </button>
+        </div>
+      )}
+      {adding && <AddWordSheet onClose={() => setAdding(false)} />}
       {open && !open.deleted && <WordDetails w={open} onClose={() => setOpenId(null)} />}
       <TabBar active="words" onTab={onTab} onLearn={onLearn} />
     </div>
