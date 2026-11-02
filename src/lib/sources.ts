@@ -16,20 +16,20 @@ export type Level = (typeof LEVELS)[number];
 export const LENGTHS = { short: 90, medium: 170, long: 280 } as const;
 export type Length = keyof typeof LENGTHS;
 
-/** Words worth repeating: the weakest learning words first. */
-export function wordsToWeave(limit = 8): string[] {
+export const MAX_WOVEN_WORDS = 12;
+
+/** Learning words, weakest first: the default picks for a generated text. */
+export function learningWordsByWeakness(): { id: string; label: string; translation: string }[] {
   return Object.values(getData().words)
     .filter((w) => !w.deleted && w.status === 'learning')
     .sort((a, b) => (a.card?.stability ?? 0) - (b.card?.stability ?? 0))
-    .slice(0, limit)
-    .map((w) => (w.article ? `${w.article} ${w.lemma}` : w.lemma));
+    .map((w) => ({ id: w.id, label: w.article ? `${w.article} ${w.lemma}` : w.lemma, translation: (w.meanings.split(',')[0] || w.translation).trim() }));
 }
 
 export type GenStage = 'writing' | 'reviewing';
 
 /** Writer drafts the text, then a stricter critic model corrects it. */
-export async function generate(level: Level, topic: string, length: Length, weave: boolean, onStage?: (s: GenStage) => void): Promise<FoundText> {
-  const words = weave ? wordsToWeave() : [];
+export async function generate(level: Level, topic: string, length: Length, words: string[], onStage?: (s: GenStage) => void): Promise<FoundText> {
   onStage?.('writing');
   const draft = await generateText(level, topic, LENGTHS[length], words);
   onStage?.('reviewing');

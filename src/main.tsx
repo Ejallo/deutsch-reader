@@ -5,6 +5,7 @@ import { App } from './App';
 import { loadStore } from './lib/store';
 import { loadCache } from './lib/gemini';
 import { initSync } from './lib/sync';
+import { startGoalReporting } from './lib/push';
 import './styles.css';
 
 registerSW({ immediate: true });
@@ -19,6 +20,7 @@ async function start() {
     </StrictMode>,
   );
   void initSync();
+  startGoalReporting();
 }
 
 void start();

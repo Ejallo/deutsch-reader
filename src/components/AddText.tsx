@@ -9,7 +9,8 @@ import {
   klexikonSearch,
   LEVELS,
   readingMinutes,
-  wordsToWeave,
+  learningWordsByWeakness,
+  MAX_WOVEN_WORDS,
   type FoundText,
   type GenStage,
   type Length,
@@ -122,9 +123,11 @@ function GenerateTab({ onSave }: SaveProps) {
   const [topic, setTopic] = useState('');
   const [length, setLength] = useState<Length>('medium');
   const [weave, setWeave] = useState(true);
+  const [allWords] = useState(learningWordsByWeakness);
+  const [picked, setPicked] = useState<Set<string>>(() => new Set(learningWordsByWeakness().slice(0, 8).map((w) => w.id)));
+  const [showAll, setShowAll] = useState(false);
   const { busy, error, run } = useTask();
   const [stage, setStage] = useState<GenStage>('writing');
-  const myWords = wordsToWeave();
 
   return (
     <>
@@ -165,14 +168,59 @@ function GenerateTab({ onSave }: SaveProps) {
           ))}
         </div>
       </div>
-      {myWords.length > 0 && (
-        <label className="toggle">
-          <input type="checkbox" checked={weave} onChange={(e) => setWeave(e.target.checked)} />
-          <span>Вплести мои слова ({myWords.length}): {myWords.slice(0, 4).join(', ')}{myWords.length > 4 ? '…' : ''}</span>
-        </label>
+      {allWords.length > 0 && (
+        <div className="weave">
+          <label className="toggle">
+            <input type="checkbox" checked={weave} onChange={(e) => setWeave(e.target.checked)} />
+            <span>
+              Добавить изучаемые слова{weave ? ` · выбрано ${picked.size}` : ''}
+            </span>
+          </label>
+          {weave && (
+            <>
+              <div className="weave-list">
+                {(showAll ? allWords : allWords.slice(0, 12)).map((w) => {
+                  const on = picked.has(w.id);
+                  return (
+                    <label key={w.id} className={`weave-item ${on ? 'on' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        disabled={!on && picked.size >= MAX_WOVEN_WORDS}
+                        onChange={() =>
+                          setPicked((cur) => {
+                            const next = new Set(cur);
+                            if (next.has(w.id)) next.delete(w.id);
+                            else next.add(w.id);
+                            return next;
+                          })
+                        }
+                      />
+                      <span className="weave-de">{w.label}</span>
+                      <span className="weave-ru">{w.translation}</span>
+                    </label>
+                  );
+                })}
+              </div>
+              <div className="row">
+                {allWords.length > 12 && (
+                  <button className="link" onClick={() => setShowAll((v) => !v)}>
+                    {showAll ? 'Свернуть' : `Показать все (${allWords.length})`}
+                  </button>
+                )}
+                {picked.size > 0 && (
+                  <button className="link" onClick={() => setPicked(new Set())}>
+                    Снять все
+                  </button>
+                )}
+              </div>
+              {picked.size >= MAX_WOVEN_WORDS && <p className="muted small">Не больше {MAX_WOVEN_WORDS} слов — иначе текст получится натянутым.</p>}
+            </>
+          )}
+        </div>
       )}
       {error && <p className="error">{error}</p>}
-      <button className="primary wide" disabled={busy} onClick={() => void run(async () => onSave(await generate(level, topic, length, weave, setStage)))}>
+      <button className="primary wide" disabled={busy} onClick={() => void run(async () => onSave(await generate(level, topic, length, weave ? allWords.filter((w) => picked.has(w.id)).map((w) => w.label) : [], setStage)))}>
         {!busy ? 'Создать текст' : stage === 'writing' ? 'Автор пишет текст…' : 'Критик проверяет…'}
       </button>
       {busy && <p className="muted small">Обычно это занимает 15–50 секунд.</p>}

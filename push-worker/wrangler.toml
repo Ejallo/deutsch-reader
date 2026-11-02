@@ -9,7 +9,7 @@ crons = ["0 * * * *"]
 [vars]
 VAPID_PUBLIC = "BOfLPCjXylsvmyx0FXbtuajbnS1XobXkBbWL0r0ln5JTJqfGEjiUED3TWilSzxJ3QK9QB-GKJGjlDVJKtWqlh7E"
 
-# The KV id is filled in after `wrangler kv namespace create SUBS`
+# Subscriptions store
 [[kv_namespaces]]
 binding = "SUBS"
-id = "REPLACE_WITH_KV_ID"
+id = "3208bc50b2284590a79a424bf23a0104"

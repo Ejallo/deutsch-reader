@@ -5,6 +5,7 @@ import { listModels, pickDefaultModel, type ModelInfo } from '../lib/gemini';
 import { connectionCode, disconnect, getConnection, syncNow, useSync } from '../lib/sync';
 import { Setup } from './Setup';
 import type { Theme } from '../lib/theme';
+import { disableReminders, enableReminders, isIos, isStandalone, pushSupported, reminderPrefs, sendTestReminder } from '../lib/push';
 
 interface Props {
   onBack: () => void;
@@ -23,6 +24,7 @@ export function Settings({ onBack }: Props) {
       <ThemeSection />
       <GeminiSection />
       <LearnSection />
+      <ReminderSection />
       <SyncSection />
       <DataSection />
     </div>
@@ -85,6 +87,7 @@ function GeminiSection() {
 function ThemeSection() {
   const { settings } = useData();
   const options: [Theme, string][] = [
+    ['time', 'По времени суток'],
     ['light', 'Светлая'],
     ['dark', 'Тёмная'],
     ['auto', 'Как в телефоне'],
@@ -92,6 +95,7 @@ function ThemeSection() {
   return (
     <section className="card">
       <h2>Тема</h2>
+      <p className="muted small">«По времени суток»: светлая с 7:00, тёмная с 20:00.</p>
       <div className="chips">
         {options.map(([id, label]) => (
           <button key={id} className={settings.theme === id ? 'chip on' : 'chip'} onClick={() => updateSettings({ theme: id })}>
@@ -99,6 +103,84 @@ function ThemeSection() {
           </button>
         ))}
       </div>
+    </section>
+  );
+}
+
+function ReminderSection() {
+  const [prefs, setPrefs] = useState(reminderPrefs());
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [error, setError] = useState('');
+
+  const run = async (fn: () => Promise<void>, done: string) => {
+    setBusy(true);
+    setError('');
+    setMsg('');
+    try {
+      await fn();
+      setPrefs(reminderPrefs());
+      setMsg(done);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!pushSupported()) {
+    return (
+      <section className="card">
+        <h2>Напоминания</h2>
+        <p className="muted small">
+          {isIos() && !isStandalone()
+            ? 'Напоминания работают только в приложении с экрана «Домой»: Safari → Поделиться → На экран Домой (iOS 16.4+).'
+            : 'Напоминания пока недоступны на этом устройстве.'}
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="card">
+      <h2>Напоминания</h2>
+      <p className="muted small">Пришлю уведомление в выбранный час, если цель дня ещё не выполнена.</p>
+      <label className="field">
+        <span>Во сколько напоминать</span>
+        <select
+          value={prefs.hour}
+          disabled={busy}
+          onChange={(e) => {
+            const hour = Number(e.target.value);
+            setPrefs({ ...prefs, hour });
+            if (prefs.enabled) void run(() => enableReminders(hour), 'Время изменено');
+          }}
+        >
+          {Array.from({ length: 17 }, (_, i) => i + 7).map((h) => (
+            <option key={h} value={h}>
+              {h}:00
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="row">
+        {prefs.enabled ? (
+          <>
+            <button disabled={busy} onClick={() => void run(disableReminders, 'Напоминания выключены')}>
+              Выключить
+            </button>
+            <button disabled={busy} onClick={() => void run(async () => void (await sendTestReminder()), 'Тестовое отправлено')}>
+              Прислать тестовое
+            </button>
+          </>
+        ) : (
+          <button className="primary" disabled={busy} onClick={() => void run(() => enableReminders(prefs.hour), 'Напоминания включены')}>
+            Включить напоминания
+          </button>
+        )}
+      </div>
+      {msg && <p className="small">{msg}</p>}
+      {error && <p className="error">{error}</p>}
     </section>
   );
 }

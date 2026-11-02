@@ -1352,3 +1352,37 @@ button.link.danger {
 input[type='checkbox'] {
   accent-color: var(--gold);
 }
+.weave {
+  margin: 8px 0 12px;
+}
+.weave-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.weave-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.weave-item:last-child {
+  border-bottom: none;
+}
+.weave-item input {
+  width: 20px;
+  height: 20px;
+}
+.weave-de {
+  font-family: var(--serif);
+  font-weight: 600;
+}
+.weave-ru {
+  color: var(--muted);
+  font-size: 14px;
+}
