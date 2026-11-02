@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { addXp, countPractice, DAILY_GOAL, getData, learningCards, recordGoal, saveChunkReview, saveReview, todayProgress, updateSettings, useData, type Chunk, type ChunkExample, type Word } from '../lib/store';
 import { review, type Answer } from '../lib/srs';
-import { afterAnswer, checkChunk, checkGap, checkTiles, checkWritten, fullGerman, isSpecial, newSession, nextItem, shortTranslation, type FeedItem, type Format } from '../lib/feed';
+import { afterAnswer, checkChunk, checkGap, checkTiles, checkWritten, EXTRA_NEW_STEP, fullGerman, isSpecial, newSession, nextItem, shortTranslation, type FeedItem, type Format } from '../lib/feed';
 import { comboMultiplier, XP } from '../lib/gamify';
 import { sfx, unlockAudio } from '../lib/sfx';
 import { speak } from '../lib/tts';
@@ -151,6 +151,12 @@ export function Feed({ onClose }: Props) {
     setSpecialDone(true);
   };
 
+  const moreNew = () => {
+    session.current.extraNew += EXTRA_NEW_STEP;
+    session.current.offeredMore = false;
+    goNext();
+  };
+
   const canAdvance = !!item && (item.format === 'intro' || item.format === 'c-intro' || !!result || specialDone);
 
   // Swipe up / wheel / keys move to the next card once this one is done
@@ -186,6 +192,8 @@ export function Feed({ onClose }: Props) {
         return <MilestoneCard n={item.milestone ?? 0} onShown={() => setSpecialDone(true)} onNext={goNext} />;
       case 'goal':
         return null;
+      case 'more':
+        return <MoreCard left={item.left ?? 0} onMore={moreNew} onSkip={goNext} />;
     }
     if (chunk && example) {
       switch (item.format) {
@@ -263,7 +271,17 @@ export function Feed({ onClose }: Props) {
       </header>
 
       <div className="feed-stage">
-        {empty && <EmptyCard reason={empty} limit={data.settings.newPerDay} onClose={onClose} />}
+        {empty && (
+          <EmptyCard
+            reason={empty}
+            limit={data.settings.newPerDay}
+            onClose={onClose}
+            onMore={() => {
+              session.current.extraNew += EXTRA_NEW_STEP;
+              load();
+            }}
+          />
+        )}
         {item && (word || chunk || isSpecial(item.format)) && item.format !== 'goal' && (
           <div key={item.key} className={`feed-card ${leaving ? 'leaving' : 'entering'} ${result ? `res-${result.answer}` : ''} fmt-${item.format}`}>
             {((result?.answer === 'good' && combo > 0 && combo % 3 === 0) || roundDone > 0) && <Confetti />}
@@ -604,9 +622,9 @@ function ChunkTilesCard({ e, tiles, result, onCheck }: { e: ChunkExample; tiles:
         <p className="feed-tr" style={{ fontSize: 18, textAlign: 'center' }}>
           {e.ru}
         </p>
-        <div className={`tile-line ${result ? `res-${result.answer}` : ''}`}>
+        <div className={`wtile-line ${result ? `res-${result.answer}` : ''}`}>
           {placed.map((i) => (
-            <button key={i} className="tile" disabled={!!result} onClick={() => setPlaced((p) => p.filter((x) => x !== i))}>
+            <button key={i} className="wtile" disabled={!!result} onClick={() => setPlaced((p) => p.filter((x) => x !== i))}>
               {tiles[i]}
             </button>
           ))}
@@ -614,9 +632,9 @@ function ChunkTilesCard({ e, tiles, result, onCheck }: { e: ChunkExample; tiles:
       </div>
       {!result && (
         <>
-          <div className="tile-pool">
+          <div className="wtile-pool">
             {left.map((i) => (
-              <button key={i} className="tile" onClick={() => setPlaced((p) => [...p, i])}>
+              <button key={i} className="wtile" onClick={() => setPlaced((p) => [...p, i])}>
                 {tiles[i]}
               </button>
             ))}
@@ -630,7 +648,25 @@ function ChunkTilesCard({ e, tiles, result, onCheck }: { e: ChunkExample; tiles:
   );
 }
 
-function EmptyCard({ reason, limit, onClose }: { reason: 'empty' | 'limit'; limit: number; onClose: () => void }) {
+function MoreCard({ left, onMore, onSkip }: { left: number; onMore: () => void; onSkip: () => void }) {
+  return (
+    <>
+      <Mascot size={110} />
+      <p className="feed-tr">Лимит новых на сегодня пройден</p>
+      <p className="muted">
+        Ждут ещё {left}. Можно взять ещё {Math.min(EXTRA_NEW_STEP, left)} или просто повторять уже знакомые.
+      </p>
+      <button className="chunky c-peach feed-cta" onClick={onMore}>
+        + Ещё {Math.min(EXTRA_NEW_STEP, left)} новых
+      </button>
+      <button className="chunky c-card feed-cta" onClick={onSkip}>
+        Только повторять
+      </button>
+    </>
+  );
+}
+
+function EmptyCard({ reason, limit, onClose, onMore }: { reason: 'empty' | 'limit'; limit: number; onClose: () => void; onMore: () => void }) {
   return (
     <div className="feed-card entering">
       <Mascot size={110} />
@@ -642,7 +678,10 @@ function EmptyCard({ reason, limit, onClose }: { reason: 'empty' | 'limit'; limi
       ) : (
         <>
           <p className="feed-tr">На сегодня новые карточки закончились</p>
-          <p className="muted">Лимит — {limit} новых в день. Завтра будут ещё.</p>
+          <p className="muted">Лимит — {limit} новых в день. Можно взять ещё сейчас.</p>
+          <button className="chunky c-peach feed-cta" onClick={onMore}>
+            + Ещё {EXTRA_NEW_STEP} новых
+          </button>
         </>
       )}
       <button className="chunky c-peach feed-cta" onClick={onClose}>

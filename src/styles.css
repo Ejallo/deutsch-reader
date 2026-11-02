@@ -2305,7 +2305,7 @@ button.link.danger {
   border-radius: 6px 6px 0 0;
   font-weight: 700;
 }
-.tile-line {
+.wtile-line {
   width: 100%;
   min-height: 56px;
   border-bottom: 2px solid var(--line);
@@ -2315,20 +2315,20 @@ button.link.danger {
   padding: 6px 0;
   justify-content: center;
 }
-.tile-line.res-good {
+.wtile-line.res-good {
   border-color: var(--mint);
 }
-.tile-line.res-again {
+.wtile-line.res-again {
   border-color: var(--pink);
 }
-.tile-pool {
+.wtile-pool {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   justify-content: center;
   margin: 8px 0 4px;
 }
-.tile {
+.wtile {
   height: 44px;
   padding: 0 14px;
   border-radius: 14px;
@@ -2338,13 +2338,26 @@ button.link.danger {
   font: 600 17px var(--body);
   color: var(--ink);
 }
-.tile:active:not(:disabled) {
+.wtile:active:not(:disabled) {
   transform: translateY(3px);
   box-shadow: none;
 }
-.tile:disabled {
+.wtile:disabled {
   opacity: 1;
 }
 .cloze .nowrap {
   white-space: nowrap;
+}
+
+/* Wide screens: the tab bar follows the content column instead of spanning the window */
+@media (min-width: 600px) {
+  .tabbar {
+    left: 50%;
+    right: auto;
+    width: 560px;
+    transform: translateX(-50%);
+    border: 1px solid var(--line);
+    border-bottom: none;
+    border-radius: 24px 24px 0 0;
+  }
 }

@@ -14,12 +14,13 @@ export type Format =
   | 'c-tiles'
   | 'c-write'
   | 'c-ru'
+  | 'more' // offer to go past today's new-card limit
   | 'chest'
   | 'blitz'
   | 'milestone'
   | 'goal';
 
-const SPECIAL: Format[] = ['chest', 'blitz', 'milestone', 'goal'];
+const SPECIAL: Format[] = ['more', 'chest', 'blitz', 'milestone', 'goal'];
 export const isSpecial = (f: Format) => SPECIAL.includes(f);
 
 export interface FeedItem {
@@ -34,6 +35,7 @@ export interface FeedItem {
   tiles?: string[]; // shuffled words of the sentence for c-tiles
   blitz?: string[]; // noun ids for the article blitz
   milestone?: number;
+  left?: number; // new cards still waiting, for the 'more' offer
 }
 
 export interface Session {
@@ -49,6 +51,8 @@ export interface Session {
   nextSurpriseAt: number;
   nextSentenceAt: number;
   celebrateGoal: boolean;
+  extraNew: number; // new cards allowed today on top of the limit (asked for in this session)
+  offeredMore: boolean;
 }
 
 const between = (a: number, b: number) => a + Math.floor(Math.random() * (b - a + 1));
@@ -65,7 +69,11 @@ export const newSession = (): Session => ({
   nextSurpriseAt: between(8, 12),
   nextSentenceAt: between(10, 15),
   celebrateGoal: false,
+  extraNew: 0,
+  offeredMore: false,
 });
+
+export const EXTRA_NEW_STEP = 5;
 
 export type NextResult = { item: FeedItem } | { item: null; reason: 'empty' | 'limit' };
 
@@ -248,13 +256,18 @@ export function nextItem(d: AppData, s: Session): NextResult {
   const fresh = units
     .filter((u) => !u.card && !s.introduced.has(u.key))
     .sort((a, b) => Number(!a.chunk) - Number(!b.chunk) || a.createdAt - b.createdAt);
-  if (fresh[0] && todayProgress(d).newIntroduced < d.settings.newPerDay) {
+  if (fresh[0] && todayProgress(d).newIntroduced < d.settings.newPerDay + s.extraNew) {
     const u = fresh[0];
     s.introduced.add(u.key);
     s.pending.push(makeUnitItem(d, s, u, true, u.chunk ? 'c-choose' : 'choose'));
     const intro: FeedItem = { key: ++s.seq, wordId: u.word?.id ?? '', format: u.chunk ? 'c-intro' : 'intro', graded: false, options: [], answer: -1 };
     if (u.chunk) Object.assign(intro, { chunkId: u.chunk.id, ex: 0 });
     return { item: intro };
+  }
+  // Limit reached but more is waiting: ask once instead of silently switching to practice
+  if (fresh[0] && !s.offeredMore) {
+    s.offeredMore = true;
+    return { item: specialItem(s, 'more', { left: fresh.length }) };
   }
 
   // 4. Endless practice over already seen cards, today's first, weakest first
