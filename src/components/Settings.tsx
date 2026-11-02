@@ -25,6 +25,9 @@ export function Settings({ onTab, onLearn }: Props) {
       <ReminderSection />
       <SyncSection />
       <DataSection />
+      <p className="muted small" style={{ textAlign: 'center', marginTop: 20 }}>
+        Версия {__BUILD__} UTC
+      </p>
       <TabBar active="settings" onTab={onTab} onLearn={onLearn} />
     </div>
   );

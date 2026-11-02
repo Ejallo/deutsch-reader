@@ -7,6 +7,10 @@ const base = '/deutsch-reader/';
 
 export default defineConfig({
   base,
+  define: {
+    // Shown in settings to tell which version is running
+    __BUILD__: JSON.stringify(new Date().toISOString().slice(0, 16).replace('T', ' ')),
+  },
   plugins: [
     react(),
     VitePWA({

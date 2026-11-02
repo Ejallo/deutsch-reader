@@ -8,7 +8,19 @@ import { initSync } from './lib/sync';
 import { startGoalReporting } from './lib/push';
 import './styles.css';
 
-registerSW({ immediate: true });
+// iOS only re-checks the service worker on a cold start, so ask for updates
+// whenever the app comes to the foreground; autoUpdate then reloads into the new version
+registerSW({
+  immediate: true,
+  onRegisteredSW(_url, reg) {
+    if (!reg) return;
+    const check = () => void reg.update().catch(() => undefined);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') check();
+    });
+    setInterval(check, 30 * 60 * 1000);
+  },
+});
 
 async function start() {
   await Promise.all([loadStore(), loadCache()]);
