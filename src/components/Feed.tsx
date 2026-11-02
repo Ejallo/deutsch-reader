@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { countPractice, getData, saveReview, todayProgress, useData, type Word } from '../lib/store';
+import { addXp, countPractice, currentStreak, DAILY_GOAL, getData, recordGoal, saveReview, todayProgress, useData, type Word } from '../lib/store';
 import { review, type Answer } from '../lib/srs';
-import { afterAnswer, checkWritten, fullGerman, newSession, nextItem, shortTranslation, type FeedItem } from '../lib/feed';
+import { afterAnswer, checkWritten, fullGerman, isSpecial, newSession, nextItem, shortTranslation, type FeedItem } from '../lib/feed';
+import { comboMultiplier, XP } from '../lib/gamify';
+import { sfx, unlockAudio } from '../lib/sfx';
 import { speak } from '../lib/tts';
+import { BlitzCard, ChestCard, GoalCard, MilestoneCard, SentenceCard } from './SpecialCards';
 
 interface Props {
   onClose: () => void;
 }
 
-type Result = { answer: Answer; picked?: number; typed?: string };
+type Result = { answer: Answer; picked?: number; typed?: string; xp?: number };
 
-const DAILY_GOAL = 20;
 const AUTO_NEXT_MS = 900;
 const LEAVE_MS = 260;
 const SWIPE_PX = 60;
@@ -21,6 +23,8 @@ export function Feed({ onClose }: Props) {
   const [item, setItem] = useState<FeedItem | null>(null);
   const [empty, setEmpty] = useState<'empty' | 'limit' | null>(null);
   const [result, setResult] = useState<Result | null>(null);
+  const [specialDone, setSpecialDone] = useState(false);
+  const [combo, setCombo] = useState(0);
   const [leaving, setLeaving] = useState(false);
   const started = useRef(false);
   const autoTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -31,6 +35,7 @@ export function Feed({ onClose }: Props) {
     setItem(r.item);
     setEmpty(r.item ? null : r.reason);
     setResult(null);
+    setSpecialDone(false);
   }, []);
 
   useEffect(() => {
@@ -39,10 +44,12 @@ export function Feed({ onClose }: Props) {
     load();
   }, [load]);
 
-  const word: Word | undefined = item ? data.words[item.wordId] : undefined;
+  const needsWord = !!item && !isSpecial(item.format);
+  const word: Word | undefined = item && needsWord ? data.words[item.wordId] : undefined;
 
   const goNext = useCallback(() => {
     clearTimeout(autoTimer.current);
+    sfx.swipe();
     setLeaving(true);
     setTimeout(() => {
       setLeaving(false);
@@ -52,29 +59,64 @@ export function Feed({ onClose }: Props) {
 
   // Speak when a card appears where hearing the word is the point
   useEffect(() => {
-    if (item && !word) load(); // word was removed on another screen or device
+    if (needsWord && !word) load(); // word was removed on another screen or device
     else if (word && item && (item.format === 'intro' || item.format === 'listen')) speak(fullGerman(word));
   }, [item?.key]);
 
-  const canAdvance = !!item && (item.format === 'intro' || !!result);
+  /** The answer that completes today's goal extends the streak and queues a celebration. */
+  const countTowardGoal = () => {
+    if (todayProgress(getData()).reviewed === DAILY_GOAL) {
+      recordGoal();
+      session.current.celebrateGoal = true;
+    }
+  };
 
   const submit = (answer: Answer, extra: Omit<Result, 'answer'> = {}) => {
     if (!item || !word || result) return;
     const w = getData().words[item.wordId];
     if (item.graded) saveReview(w.id, review(w.card, answer), !w.card);
     else countPractice();
+    countTowardGoal();
     const learning = Object.values(getData().words).filter((x) => !x.deleted && x.status === 'learning').length;
     afterAnswer(session.current, item, answer !== 'again', learning);
-    setResult({ answer, ...extra });
-    speak(fullGerman(w));
+
+    // "Almost" keeps the combo alive but doesn't grow it
+    const nextCombo = answer === 'good' ? session.current.combo + 1 : answer === 'hard' ? session.current.combo : 0;
+    session.current.combo = nextCombo;
+    setCombo(nextCombo);
+    const xp = answer === 'good' ? XP.good * comboMultiplier(nextCombo) : answer === 'hard' ? XP.hard : 0;
+    addXp(xp);
+    if (answer === 'good') sfx.correct(nextCombo);
+    else if (answer === 'hard') sfx.almost();
+    else sfx.wrong();
+
+    setResult({ answer, xp, ...extra });
+    setTimeout(() => speak(fullGerman(w)), 250);
     if (answer === 'good') autoTimer.current = setTimeout(goNext, AUTO_NEXT_MS);
   };
 
   const finishIntro = () => {
     if (!item) return;
     afterAnswer(session.current, item, true, 0);
+    addXp(XP.intro);
     goNext();
   };
+
+  const finishSpecial = (xp: number) => {
+    addXp(xp);
+    setSpecialDone(true);
+  };
+
+  const finishSentence = (xp: number) => {
+    if (!item) return;
+    countPractice();
+    countTowardGoal();
+    afterAnswer(session.current, item, true, 0);
+    addXp(xp);
+    setSpecialDone(true);
+  };
+
+  const canAdvance = !!item && (item.format === 'intro' || !!result || specialDone);
 
   // Swipe up / wheel / keys move to the next card once this one is done
   const tryAdvance = () => {
@@ -85,7 +127,8 @@ export function Feed({ onClose }: Props) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).tagName === 'INPUT') return;
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       if (e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') tryAdvance();
     };
     window.addEventListener('keydown', onKey);
@@ -93,13 +136,44 @@ export function Feed({ onClose }: Props) {
   });
 
   const p = todayProgress(data);
-  const now = Date.now();
-  const learningWords = Object.values(data.words).filter((w) => !w.deleted && w.status === 'learning');
-  const dueCount = learningWords.filter((w) => w.card && w.card.due <= now).length;
+  const streak = currentStreak(data);
+  const mult = comboMultiplier(combo);
+
+  const renderCard = () => {
+    if (!item) return null;
+    const pick = (i: number) => submit(i === item.answer ? 'good' : 'again', { picked: i });
+    switch (item.format) {
+      case 'chest':
+        return <ChestCard done={specialDone} onOpen={finishSpecial} onNext={goNext} />;
+      case 'blitz':
+        return <BlitzCard ids={item.blitz ?? []} done={specialDone} onFinish={finishSpecial} onNext={goNext} />;
+      case 'milestone':
+        return <MilestoneCard n={item.milestone ?? 0} onShown={() => setSpecialDone(true)} onNext={goNext} />;
+      case 'goal':
+        return <GoalCard streak={currentStreak(getData())} onShown={() => setSpecialDone(true)} onNext={goNext} />;
+    }
+    if (!word) return null;
+    switch (item.format) {
+      case 'intro':
+        return <IntroCard w={word} onDone={finishIntro} />;
+      case 'choose':
+        return <ChooseCard w={word} item={item} result={result} onPick={pick} />;
+      case 'listen':
+        return <ListenCard w={word} item={item} result={result} onPick={pick} />;
+      case 'article':
+        return <ArticleCard w={word} item={item} result={result} onPick={pick} />;
+      case 'write':
+        return <WriteCard w={word} result={result} onCheck={(typed) => submit(checkWritten(word, typed), { typed })} />;
+      case 'sentence':
+        return <SentenceCard w={word} done={specialDone} onFinish={finishSentence} onNext={goNext} />;
+    }
+    return null;
+  };
 
   return (
     <div
       className="feed"
+      onPointerDown={unlockAudio}
       onTouchStart={(e) => (touchY.current = e.touches[0].clientY)}
       onTouchEnd={(e) => {
         if (touchY.current !== null && touchY.current - e.changedTouches[0].clientY > SWIPE_PX) tryAdvance();
@@ -118,24 +192,26 @@ export function Feed({ onClose }: Props) {
             <i style={{ width: `${Math.min(100, (p.reviewed / DAILY_GOAL) * 100)}%` }} />
           </div>
           <span>
-            {p.reviewed}/{DAILY_GOAL}
+            {Math.min(p.reviewed, DAILY_GOAL)}/{DAILY_GOAL}
           </span>
         </div>
-        <span className="feed-due" title="К повторению">
-          {dueCount}
+        <span className={`feed-streak ${streak ? '' : 'off'}`} title="Серия дней">
+          🔥 {streak}
         </span>
+        {mult > 1 && (
+          <span key={mult} className="feed-combo" title="Комбо">
+            x{mult}
+          </span>
+        )}
       </header>
 
       <div className="feed-stage">
         {empty && <EmptyCard reason={empty} limit={data.settings.newPerDay} onClose={onClose} />}
-        {item && word && (
-          <div key={item.key} className={`feed-card ${leaving ? 'leaving' : 'entering'} ${result ? `res-${result.answer}` : ''}`}>
-            {!item.graded && item.format !== 'intro' && <span className="feed-chip">Повторение</span>}
-            {item.format === 'intro' && <IntroCard w={word} onDone={finishIntro} />}
-            {item.format === 'choose' && <ChooseCard w={word} item={item} result={result} onPick={(i) => submit(i === item.answer ? 'good' : 'again', { picked: i })} />}
-            {item.format === 'listen' && <ListenCard w={word} item={item} result={result} onPick={(i) => submit(i === item.answer ? 'good' : 'again', { picked: i })} />}
-            {item.format === 'article' && <ArticleCard w={word} item={item} result={result} onPick={(i) => submit(i === item.answer ? 'good' : 'again', { picked: i })} />}
-            {item.format === 'write' && <WriteCard w={word} result={result} onCheck={(typed) => submit(checkWritten(word, typed), { typed })} />}
+        {item && (word || !needsWord) && (
+          <div key={item.key} className={`feed-card ${leaving ? 'leaving' : 'entering'} ${result ? `res-${result.answer}` : ''} fmt-${item.format}`}>
+            {!item.graded && !isSpecial(item.format) && item.format !== 'intro' && item.format !== 'sentence' && <span className="feed-chip">Повторение</span>}
+            {renderCard()}
+            {!!result?.xp && <span className="xp-float">+{result.xp} XP</span>}
           </div>
         )}
       </div>

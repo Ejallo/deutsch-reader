@@ -53,7 +53,18 @@ export interface Settings extends Rec {
   geminiKey: string;
   geminiModel: string;
   newPerDay: number;
+  sound: boolean;
 }
+
+export interface Stats extends Rec {
+  xp: number;
+  streak: number;
+  lastGoalDay: string; // last day the daily goal was met
+  freezeUsedDay: string; // day a streak freeze covered
+  milestones: number[]; // word-count milestones already celebrated
+}
+
+export const DAILY_GOAL = 20;
 
 export interface Progress extends Rec {
   day: string; // local YYYY-MM-DD the counters belong to
@@ -68,6 +79,7 @@ export interface AppData {
   forms: Record<string, FormLink>;
   settings: Settings;
   progress: Progress;
+  stats: Stats;
 }
 
 export const DEFAULT_NEW_PER_DAY = 10;
@@ -77,9 +89,29 @@ export const emptyData = (): AppData => ({
   texts: {},
   words: {},
   forms: {},
-  settings: { geminiKey: '', geminiModel: '', newPerDay: DEFAULT_NEW_PER_DAY, updatedAt: 0 },
+  settings: { geminiKey: '', geminiModel: '', newPerDay: DEFAULT_NEW_PER_DAY, sound: true, updatedAt: 0 },
   progress: { day: '', newIntroduced: 0, reviewed: 0, updatedAt: 0 },
+  stats: { xp: 0, streak: 0, lastGoalDay: '', freezeUsedDay: '', milestones: [], updatedAt: 0 },
 });
+
+const dayShift = (days: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return todayKey(d);
+};
+
+/** A freeze is available if none was used in the last 7 days. */
+export function freezeAvailable(s: Stats): boolean {
+  return !s.freezeUsedDay || s.freezeUsedDay < dayShift(-7);
+}
+
+/** Streak as shown today: still alive if yesterday (or the day before, with a freeze) met the goal. */
+export function currentStreak(d: AppData): number {
+  const s = d.stats;
+  if (s.lastGoalDay === todayKey() || s.lastGoalDay === dayShift(-1)) return s.streak;
+  if (s.lastGoalDay === dayShift(-2) && freezeAvailable(s)) return s.streak;
+  return 0;
+}
 
 export function todayKey(d = new Date()): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -113,6 +145,7 @@ export function mergeData(a: AppData, b: AppData): AppData {
     forms: mergeMap(a.forms ?? {}, b.forms ?? {}),
     settings: { ...base.settings, ...settings },
     progress: newer(a.progress, b.progress, base.progress),
+    stats: { ...base.stats, ...newer(a.stats, b.stats, base.stats) },
   };
 }
 
@@ -229,6 +262,32 @@ export function countPractice() {
     const p = todayProgress(d);
     return { ...d, progress: { ...p, reviewed: p.reviewed + 1, updatedAt: t } };
   });
+}
+
+export function addXp(amount: number) {
+  if (amount <= 0) return;
+  update((d) => ({ ...d, stats: { ...d.stats, xp: d.stats.xp + amount, updatedAt: now() } }));
+}
+
+/** Called once when today's goal is reached: extends or restarts the streak. */
+export function recordGoal() {
+  update((d) => {
+    const s = d.stats;
+    const today = todayKey();
+    if (s.lastGoalDay === today) return d;
+    let streak = 1;
+    let freezeUsedDay = s.freezeUsedDay;
+    if (s.lastGoalDay === dayShift(-1)) streak = s.streak + 1;
+    else if (s.lastGoalDay === dayShift(-2) && freezeAvailable(s)) {
+      streak = s.streak + 1;
+      freezeUsedDay = dayShift(-1);
+    }
+    return { ...d, stats: { ...s, streak, freezeUsedDay, lastGoalDay: today, updatedAt: now() } };
+  });
+}
+
+export function markMilestone(n: number) {
+  update((d) => ({ ...d, stats: { ...d.stats, milestones: [...d.stats.milestones, n], updatedAt: now() } }));
 }
 
 export function updateSettings(patch: Partial<Omit<Settings, 'updatedAt'>>) {

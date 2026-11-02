@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { liveTexts, statusOf, useData } from '../lib/store';
+import { currentStreak, liveTexts, statusOf, useData } from '../lib/store';
+import { levelOf } from '../lib/gamify';
 import { uniqueForms } from '../lib/text';
 import { SyncBadge } from './SyncBadge';
 import { TabBar } from './TabBar';
@@ -25,6 +26,8 @@ export function Library({ onOpen, onAdd, onSettings, onLearn }: Props) {
   }, [data, texts]);
 
   const learning = Object.values(data.words).filter((w) => !w.deleted && w.status === 'learning').length;
+  const streak = currentStreak(data);
+  const lvl = levelOf(data.stats.xp);
 
   return (
     <div className="screen">
@@ -38,7 +41,14 @@ export function Library({ onOpen, onAdd, onSettings, onLearn }: Props) {
         </div>
       </header>
 
-      <p className="muted small">Учишь слов: {learning}</p>
+      <div className="stats-row">
+        <span title="Серия дней">🔥 {streak}</span>
+        <span>Ур. {lvl.level}</span>
+        <span className="level-bar" title={`${lvl.into}/${lvl.need} XP`}>
+          <i style={{ width: `${(lvl.into / lvl.need) * 100}%` }} />
+        </span>
+        <span className="muted small">Учишь: {learning}</span>
+      </div>
 
       {texts.length === 0 ? (
         <div className="empty">

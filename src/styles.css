@@ -712,3 +712,158 @@ h2 {
   border-radius: 16px;
   animation: card-in 0.25s ease;
 }
+
+/* Gamification */
+.feed-card {
+  position: relative;
+}
+.confetti {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  border-radius: 24px;
+}
+.xp-float {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  font-weight: 700;
+  color: var(--good);
+  animation: xp-up 1s ease-out forwards;
+  pointer-events: none;
+}
+@keyframes xp-up {
+  from {
+    transform: translateY(12px) scale(0.8);
+    opacity: 0;
+  }
+  30% {
+    transform: translateY(0) scale(1.15);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(-14px);
+    opacity: 0;
+  }
+}
+.feed-streak {
+  font-size: 15px;
+  font-weight: 700;
+}
+.feed-streak.off {
+  filter: grayscale(1);
+  opacity: 0.6;
+}
+.feed-combo {
+  font-size: 14px;
+  font-weight: 800;
+  color: #fff;
+  background: var(--warn);
+  border-radius: 999px;
+  padding: 3px 9px;
+  animation: pop 0.35s ease;
+}
+.chest {
+  font-size: 84px;
+  line-height: 1;
+  width: 150px;
+  height: 150px;
+  border-radius: 32px;
+  margin: 12px 0;
+}
+.chest.opening {
+  animation: chest-shake 0.6s ease-in-out;
+}
+@keyframes chest-shake {
+  0%,
+  100% {
+    transform: rotate(0) scale(1);
+  }
+  20% {
+    transform: rotate(-12deg) scale(1.05);
+  }
+  40% {
+    transform: rotate(12deg) scale(1.1);
+  }
+  60% {
+    transform: rotate(-8deg) scale(1.15);
+  }
+  80% {
+    transform: rotate(6deg) scale(1.2);
+  }
+}
+.chest-reward {
+  font-size: 44px;
+  font-weight: 800;
+  animation: pop 0.4s ease;
+}
+.blitz-timer {
+  width: 100%;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--border);
+  overflow: hidden;
+}
+.blitz-timer i {
+  display: block;
+  height: 100%;
+  background: var(--warn);
+  transition: width 0.1s linear;
+}
+.blitz-word {
+  animation: card-in 0.18s ease;
+}
+.blitz-word.ok {
+  color: var(--good);
+}
+.blitz-word.bad {
+  color: var(--danger);
+}
+.sentence-input {
+  font-size: 18px;
+  border-radius: 16px;
+  resize: none;
+}
+.sentence-result {
+  width: 100%;
+  text-align: left;
+}
+.issue {
+  margin: 6px 0;
+}
+.issue s {
+  color: var(--danger);
+}
+
+/* Library stats */
+.stats-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 12px;
+  font-size: 15px;
+}
+.level-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+.level-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+}
+.toggle input {
+  width: 22px;
+  height: 22px;
+}

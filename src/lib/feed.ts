@@ -1,7 +1,11 @@
 import { todayProgress, type AppData, type Word } from './store';
+import { MILESTONES } from './gamify';
 import type { Answer } from './srs';
 
-export type Format = 'intro' | 'choose' | 'listen' | 'article' | 'write';
+export type Format = 'intro' | 'choose' | 'listen' | 'article' | 'write' | 'sentence' | 'chest' | 'blitz' | 'milestone' | 'goal';
+
+const SPECIAL: Format[] = ['chest', 'blitz', 'milestone', 'goal'];
+export const isSpecial = (f: Format) => SPECIAL.includes(f);
 
 export interface FeedItem {
   key: number;
@@ -10,6 +14,8 @@ export interface FeedItem {
   graded: boolean; // false = extra practice, doesn't move the FSRS schedule
   options: string[];
   answer: number;
+  blitz?: string[]; // noun ids for the article blitz
+  milestone?: number;
 }
 
 export interface Session {
@@ -21,9 +27,27 @@ export interface Session {
   pending: FeedItem[];
   introduced: Set<string>;
   practiceCursor: number;
+  combo: number;
+  nextSurpriseAt: number;
+  nextSentenceAt: number;
+  celebrateGoal: boolean;
 }
 
-export const newSession = (): Session => ({ seq: 0, count: 0, recent: [], retry: [], pending: [], introduced: new Set(), practiceCursor: 0 });
+const between = (a: number, b: number) => a + Math.floor(Math.random() * (b - a + 1));
+
+export const newSession = (): Session => ({
+  seq: 0,
+  count: 0,
+  recent: [],
+  retry: [],
+  pending: [],
+  introduced: new Set(),
+  practiceCursor: 0,
+  combo: 0,
+  nextSurpriseAt: between(8, 12),
+  nextSentenceAt: between(10, 15),
+  celebrateGoal: false,
+});
 
 export type NextResult = { item: FeedItem } | { item: null; reason: 'empty' | 'limit' };
 
@@ -80,6 +104,44 @@ function makeItem(d: AppData, s: Session, w: Word, graded: boolean, format?: For
   return { key: ++s.seq, wordId: w.id, format: f, graded, options, answer };
 }
 
+const specialItem = (s: Session, format: Format, extra: Partial<FeedItem> = {}): FeedItem => ({
+  key: ++s.seq,
+  wordId: '',
+  format,
+  graded: false,
+  options: [],
+  answer: -1,
+  ...extra,
+});
+
+// Celebrations and surprises break the rhythm every few cards so the feed never gets monotonous
+function nextSpecial(d: AppData, s: Session, learning: Word[]): FeedItem | null {
+  if (s.celebrateGoal) {
+    s.celebrateGoal = false;
+    return specialItem(s, 'goal');
+  }
+
+  const total = Object.values(d.words).filter((w) => !w.deleted).length;
+  const milestone = MILESTONES.find((m) => total >= m && !d.stats.milestones.includes(m));
+  if (milestone) return specialItem(s, 'milestone', { milestone });
+
+  if (s.count >= s.nextSurpriseAt) {
+    s.nextSurpriseAt = s.count + between(8, 12);
+    const nouns = Object.values(d.words).filter((w) => !w.deleted && w.article);
+    if (nouns.length >= 3 && Math.random() < 0.5) return specialItem(s, 'blitz', { blitz: shuffle(nouns.map((w) => w.id)) });
+    return specialItem(s, 'chest');
+  }
+
+  if (s.count >= s.nextSentenceAt && d.settings.geminiKey) {
+    const ready = learning.filter((w) => (w.card?.reps ?? 0) >= 2 && !s.recent.includes(w.id));
+    if (ready.length) {
+      s.nextSentenceAt = s.count + between(10, 15);
+      return { ...specialItem(s, 'sentence'), wordId: shuffle(ready)[0].id };
+    }
+  }
+  return null;
+}
+
 export function nextItem(d: AppData, s: Session): NextResult {
   const now = Date.now();
   const words = Object.values(d.words).filter((w) => !w.deleted && w.status === 'learning');
@@ -88,6 +150,9 @@ export function nextItem(d: AppData, s: Session): NextResult {
 
   const queued = s.pending.shift();
   if (queued && byId.has(queued.wordId)) return { item: queued };
+
+  const special = nextSpecial(d, s, words);
+  if (special) return { item: special };
 
   const notRecent = (w: Word) => !s.recent.includes(w.id);
 
@@ -125,10 +190,11 @@ export function nextItem(d: AppData, s: Session): NextResult {
 
 /** Bookkeeping after a card was shown and answered. */
 export function afterAnswer(s: Session, item: FeedItem, correct: boolean, totalWords: number) {
+  if (isSpecial(item.format)) return;
   if (item.format !== 'intro') s.count++;
   s.lastFormat = item.format;
   s.recent = [...s.recent, item.wordId].slice(-Math.min(3, Math.max(0, totalWords - 1)));
-  if (!correct) s.retry.push({ wordId: item.wordId, at: s.count + 4 });
+  if (!correct && item.format !== 'sentence') s.retry.push({ wordId: item.wordId, at: s.count + 4 });
 }
 
 function distance(a: string, b: string): number {

@@ -95,6 +95,10 @@ function LearnSection() {
           ))}
         </select>
       </label>
+      <label className="toggle">
+        <input type="checkbox" checked={settings.sound} onChange={(e) => updateSettings({ sound: e.target.checked })} />
+        <span>Звуки в ленте</span>
+      </label>
     </section>
   );
 }

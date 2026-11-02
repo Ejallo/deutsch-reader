@@ -163,3 +163,37 @@ export async function translateParagraph(text: string): Promise<string> {
   remember(key, r.translation);
   return r.translation;
 }
+
+export interface SentenceCheck {
+  ok: boolean;
+  usesWord: boolean;
+  corrected: string;
+  issues: { wrong: string; right: string; explanation: string }[];
+  comment: string;
+}
+
+export async function checkSentence(word: string, sentence: string): Promise<SentenceCheck> {
+  return generate<SentenceCheck>(
+    `A Russian speaker learning German wrote a sentence using the word "${word}":\n"${sentence}"\n` +
+      'Check grammar, spelling (including capitalization and umlauts) and word usage. Ignore missing final punctuation. ' +
+      'Explanations must be short, in Russian, and name the rule (e.g. "после mit — дательный падеж"). Answer in JSON.',
+    {
+      type: 'OBJECT',
+      properties: {
+        ok: { type: 'BOOLEAN', description: 'true if the sentence has no errors' },
+        usesWord: { type: 'BOOLEAN', description: 'true if the target word (any form) is used' },
+        corrected: S('The corrected sentence; same as input if ok'),
+        issues: {
+          type: 'ARRAY',
+          items: {
+            type: 'OBJECT',
+            properties: { wrong: S('Wrong fragment as written'), right: S('Correct fragment'), explanation: S('Short rule in Russian') },
+            required: ['wrong', 'right', 'explanation'],
+          },
+        },
+        comment: S('One short encouraging remark in Russian'),
+      },
+      required: ['ok', 'usesWord', 'corrected', 'issues', 'comment'],
+    },
+  );
+}
