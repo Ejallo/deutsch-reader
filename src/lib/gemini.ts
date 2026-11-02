@@ -66,6 +66,7 @@ interface GenOptions {
   model?: string; // a specific model instead of the user's default
   temperature?: number;
   timeoutMs?: number;
+  maxTokens?: number; // cuts off a model that starts repeating itself
 }
 
 const DEFAULT_TIMEOUT_MS = 45000;
@@ -86,7 +87,12 @@ async function generate<T>(prompt: string, schema: object, opts: GenOptions = {}
     headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: 'application/json', responseSchema: schema, temperature: opts.temperature ?? 0.2 },
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: schema,
+        temperature: opts.temperature ?? 0.2,
+        ...(opts.maxTokens ? { maxOutputTokens: opts.maxTokens } : {}),
+      },
     }),
     });
   } catch {
@@ -194,10 +200,13 @@ const exampleSchema = {
   required: ['de', 'ru', 'gap', 'wrong'],
 };
 
-/** Turns a tapped word or selected phrase into a lexical chunk with practice sentences. */
-export async function makeChunk(hint: string, sentence: string, fresh = false): Promise<ChunkInfo> {
+/**
+ * Turns a tapped word or selected phrase into a lexical chunk with practice sentences.
+ * `avoid` is the previous result when the learner asks for another variant.
+ */
+export async function makeChunk(hint: string, sentence: string, avoid?: ChunkInfo): Promise<ChunkInfo> {
   const key = `c|${hint}|${sentence}`;
-  if (!fresh && cache[key]) return cache[key] as ChunkInfo;
+  if (!avoid && cache[key]) return cache[key] as ChunkInfo;
   // Without a sentence the learner typed the chunk by hand: normalize it and invent all examples
   const source = sentence
     ? `Sentence: "${sentence}"\nThe learner selected: "${hint}"\n\n` +
@@ -213,7 +222,10 @@ export async function makeChunk(hint: string, sentence: string, fresh = false): 
       `Give it in dictionary form: verb as infinitive at the end, separable verbs joined, keep the article with nouns. A short fixed question or expression stays as it is.\n` +
       `2. The key word is the part of the chunk a learner is most likely to get wrong: usually the verb or preposition that goes with the noun, not the selected noun itself.\n` +
       examplesRule +
-      `For each example give "gap" = the key word exactly as spelled there and 3 wrong fillers that do not fit this chunk.\nAnswer in JSON.`,
+      `For each example give "gap" = the key word exactly as spelled there and 3 wrong fillers that do not fit this chunk.\n` +
+      // Variety comes from the prompt, not a high temperature: hot JSON output tends to loop on small models
+      (avoid ? `The learner did not like this variant, give another one with different new example sentences: ${JSON.stringify({ text: avoid.text, examples: avoid.examples.map((e) => e.de) })}\n` : '') +
+      `Answer in JSON.`,
     {
       type: 'OBJECT',
       properties: {
@@ -224,7 +236,7 @@ export async function makeChunk(hint: string, sentence: string, fresh = false): 
       },
       required: ['text', 'translation', 'note', 'examples'],
     },
-    { temperature: fresh ? 0.8 : 0.4 },
+    { temperature: avoid ? 0.5 : 0.4, timeoutMs: 25000, maxTokens: 2000 },
   );
   // Keep only examples whose gap really occurs in the sentence: cloze cards depend on it
   const examples = (r.examples ?? [])

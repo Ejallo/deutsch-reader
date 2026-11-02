@@ -43,7 +43,7 @@ export function AddChunkSheet({ onClose }: Props) {
     setBusy(true);
     setError('');
     try {
-      const r = await makeChunk(t, sentence.trim(), examples.length > 0);
+      const r = await makeChunk(t, sentence.trim(), examples.length ? { text: t, translation, note, examples } : undefined);
       setText(r.text);
       setTranslation(r.translation);
       setNote(r.note);

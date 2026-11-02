@@ -148,12 +148,14 @@ function ChunkMaker({ hint, sentence, source }: { hint: string; sentence: string
   const data = useData();
   const [st, setSt] = useState<{ loading?: boolean; info?: ChunkInfo; error?: string; saved?: string }>({});
 
-  const build = async (fresh = false) => {
-    setSt({ loading: true });
+  // While another variant loads the current one stays on screen, and stays if the request fails
+  const build = async (another = false) => {
+    const prev = st.info;
+    setSt({ info: prev, loading: true });
     try {
-      setSt({ info: await makeChunk(hint, sentence, fresh) });
+      setSt({ info: await makeChunk(hint, sentence, another ? prev : undefined) });
     } catch (e) {
-      setSt({ error: (e as Error).message });
+      setSt({ info: prev, error: (e as Error).message });
     }
   };
 
@@ -178,8 +180,6 @@ function ChunkMaker({ hint, sentence, source }: { hint: string; sentence: string
     );
   }
 
-  const first = st.info.examples[0];
-  const i = first.de.indexOf(first.gap);
   return (
     <div className="chunk-maker chunk-preview">
       <span className="chunk-label">Чанк</span>
@@ -191,24 +191,27 @@ function ChunkMaker({ hint, sentence, source }: { hint: string; sentence: string
       </div>
       <p className="sheet-tr">{st.info.translation}</p>
       {st.info.note && <p className="muted small" style={{ margin: 0 }}>{st.info.note}</p>}
-      <p className="feed-example">
-        „{first.de.slice(0, i)}
-        <b>{first.gap}</b>
-        {first.de.slice(i + first.gap.length)}“
-      </p>
-      <p className="muted small" style={{ margin: 0 }}>
-        + ещё {st.info.examples.length - 1} {st.info.examples.length - 1 === 1 ? 'пример' : 'примера'} для тренировки
-      </p>
+      {st.info.examples.map((e, n) => {
+        const i = e.de.indexOf(e.gap);
+        return (
+          <p key={n} className="feed-example" style={{ margin: 0 }}>
+            „{e.de.slice(0, i)}
+            <b>{e.gap}</b>
+            {e.de.slice(i + e.gap.length)}“
+          </p>
+        );
+      })}
+      {st.error && <p className="error small">{st.error}</p>}
       <div className="sheet-actions">
         {inDeck ? (
           <span className="tag tag-learning">Чанк в колоде</span>
         ) : (
           <>
-            <button className="chunky c-peach" onClick={save}>
+            <button className="chunky c-peach" onClick={save} disabled={st.loading}>
               + В колоду <span className="xp">+5 XP</span>
             </button>
-            <button className="link" onClick={() => void build(true)}>
-              Другой вариант
+            <button className="link" onClick={() => void build(true)} disabled={st.loading}>
+              {st.loading ? 'Ищу другой…' : 'Другой вариант'}
             </button>
           </>
         )}
