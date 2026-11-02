@@ -81,10 +81,10 @@ function translationOptions(d: AppData, w: Word): { options: string[]; answer: n
 }
 
 // Harder formats unlock as the word settles in memory
-function pickFormat(w: Word, last?: Format): Format {
+function pickFormat(w: Word, listening: boolean, last?: Format): Format {
   const reps = w.card?.reps ?? 0;
   const stability = w.card?.stability ?? 0;
-  let formats: Format[] = ['choose', 'listen'];
+  let formats: Format[] = listening ? ['choose', 'listen'] : ['choose'];
   if (w.article && reps >= 1) formats.push('article');
   if (reps >= 2) formats.push('write');
   if (stability >= 7) formats = formats.filter((f) => f !== 'choose');
@@ -93,7 +93,7 @@ function pickFormat(w: Word, last?: Format): Format {
 }
 
 function makeItem(d: AppData, s: Session, w: Word, graded: boolean, format?: Format): FeedItem {
-  const f = format ?? pickFormat(w, s.lastFormat);
+  const f = format ?? pickFormat(w, d.settings.listening, s.lastFormat);
   let options: string[] = [];
   let answer = -1;
   if (f === 'choose' || f === 'listen') ({ options, answer } = translationOptions(d, w));

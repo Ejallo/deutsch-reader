@@ -1,4 +1,4 @@
-import { todayProgress, useData } from '../lib/store';
+import { todayProgress, updateSettings, useData } from '../lib/store';
 
 interface Props {
   onLearn: () => void;
@@ -17,6 +17,14 @@ export function TabBar({ onLearn }: Props) {
   return (
     <nav className="tabbar">
       <span className="tab active">Тексты</span>
+      <button
+        className={`tab listen-toggle ${data.settings.listening ? 'on' : ''}`}
+        onClick={() => updateSettings({ listening: !data.settings.listening })}
+        aria-label={data.settings.listening ? 'Аудирование включено' : 'Аудирование выключено'}
+        title="Аудирование"
+      >
+        {data.settings.listening ? '🎧' : '🔇'}
+      </button>
       <button className="tab learn" onClick={onLearn}>
         Учить слова
         {waiting > 0 && <span className="badge">{waiting}</span>}

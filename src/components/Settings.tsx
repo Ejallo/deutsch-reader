@@ -99,6 +99,10 @@ function LearnSection() {
         <input type="checkbox" checked={settings.sound} onChange={(e) => updateSettings({ sound: e.target.checked })} />
         <span>Звуки в ленте</span>
       </label>
+      <label className="toggle">
+        <input type="checkbox" checked={settings.listening} onChange={(e) => updateSettings({ listening: e.target.checked })} />
+        <span>Аудирование: карточки «послушай» и автоозвучка слов</span>
+      </label>
     </section>
   );
 }

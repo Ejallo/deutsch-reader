@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { addXp, countPractice, currentStreak, DAILY_GOAL, getData, recordGoal, saveReview, todayProgress, useData, type Word } from '../lib/store';
+import { addXp, countPractice, currentStreak, DAILY_GOAL, getData, recordGoal, saveReview, todayProgress, updateSettings, useData, type Word } from '../lib/store';
 import { review, type Answer } from '../lib/srs';
 import { afterAnswer, checkWritten, fullGerman, isSpecial, newSession, nextItem, shortTranslation, type FeedItem } from '../lib/feed';
 import { comboMultiplier, XP } from '../lib/gamify';
@@ -60,7 +60,7 @@ export function Feed({ onClose }: Props) {
   // Speak when a card appears where hearing the word is the point
   useEffect(() => {
     if (needsWord && !word) load(); // word was removed on another screen or device
-    else if (word && item && (item.format === 'intro' || item.format === 'listen')) speak(fullGerman(word));
+    else if (word && item && getData().settings.listening && (item.format === 'intro' || item.format === 'listen')) speak(fullGerman(word));
   }, [item?.key]);
 
   /** The answer that completes today's goal extends the streak and queues a celebration. */
@@ -91,7 +91,7 @@ export function Feed({ onClose }: Props) {
     else sfx.wrong();
 
     setResult({ answer, xp, ...extra });
-    setTimeout(() => speak(fullGerman(w)), 250);
+    if (getData().settings.listening) setTimeout(() => speak(fullGerman(w)), 250);
     if (answer === 'good') autoTimer.current = setTimeout(goNext, AUTO_NEXT_MS);
   };
 
@@ -191,10 +191,16 @@ export function Feed({ onClose }: Props) {
           <div className="feed-goal-bar">
             <i style={{ width: `${Math.min(100, (p.reviewed / DAILY_GOAL) * 100)}%` }} />
           </div>
-          <span>
-            {Math.min(p.reviewed, DAILY_GOAL)}/{DAILY_GOAL}
-          </span>
+          <span className={p.reviewed >= DAILY_GOAL ? 'goal-done' : ''}>{p.reviewed >= DAILY_GOAL ? `✓ ${p.reviewed}` : `${p.reviewed}/${DAILY_GOAL}`}</span>
         </div>
+        <button
+          className={`feed-listen ${data.settings.listening ? 'on' : ''}`}
+          onClick={() => updateSettings({ listening: !data.settings.listening })}
+          aria-label={data.settings.listening ? 'Выключить аудирование' : 'Включить аудирование'}
+          title="Аудирование"
+        >
+          {data.settings.listening ? '🎧' : '🔇'}
+        </button>
         <span className={`feed-streak ${streak ? '' : 'off'}`} title="Серия дней">
           🔥 {streak}
         </span>

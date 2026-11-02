@@ -54,6 +54,7 @@ export interface Settings extends Rec {
   geminiModel: string;
   newPerDay: number;
   sound: boolean;
+  listening: boolean; // off = no listening cards and no automatic pronunciation
 }
 
 export interface Stats extends Rec {
@@ -89,7 +90,7 @@ export const emptyData = (): AppData => ({
   texts: {},
   words: {},
   forms: {},
-  settings: { geminiKey: '', geminiModel: '', newPerDay: DEFAULT_NEW_PER_DAY, sound: true, updatedAt: 0 },
+  settings: { geminiKey: '', geminiModel: '', newPerDay: DEFAULT_NEW_PER_DAY, sound: true, listening: true, updatedAt: 0 },
   progress: { day: '', newIntroduced: 0, reviewed: 0, updatedAt: 0 },
   stats: { xp: 0, streak: 0, lastGoalDay: '', freezeUsedDay: '', milestones: [], updatedAt: 0 },
 });

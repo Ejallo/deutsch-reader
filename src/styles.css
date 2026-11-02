@@ -867,3 +867,23 @@ h2 {
   width: 22px;
   height: 22px;
 }
+.goal-done {
+  color: var(--good);
+  font-weight: 700;
+}
+.feed-listen {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 16px;
+  line-height: 1;
+}
+.feed-listen:not(.on) {
+  opacity: 0.7;
+}
+.tab.listen-toggle {
+  flex: 0 0 auto;
+  font-size: 20px;
+  padding: 10px 14px;
+}
