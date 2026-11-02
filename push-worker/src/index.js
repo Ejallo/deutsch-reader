@@ -2,6 +2,8 @@
 // whose owner hasn't met today's goal by their chosen hour.
 // Pushes carry no payload (no encryption needed); the app's service worker writes the text.
 
+import { handleAccount } from './accounts.js';
+
 const ALLOWED_ORIGINS = ['https://ejallo.github.io', 'http://localhost:5173'];
 const CONTACT = 'https://ejallo.github.io/deutsch-reader/';
 
@@ -52,6 +54,8 @@ const validId = (id) => typeof id === 'string' && /^[a-zA-Z0-9-]{8,64}$/.test(id
 
 export default {
   async fetch(req, env) {
+    const p = new URL(req.url).pathname;
+    if (p.startsWith('/auth/') || p === '/data') return handleAccount(req, env);
     if (req.method === 'OPTIONS') return new Response(null, { headers: cors(req) });
     if (req.method !== 'POST') return json(req, { ok: true, service: 'deutsch-reader-push' });
     const path = new URL(req.url).pathname;

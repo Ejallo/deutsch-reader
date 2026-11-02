@@ -4,7 +4,8 @@ import { registerSW } from 'virtual:pwa-register';
 import { App } from './App';
 import { loadStore } from './lib/store';
 import { loadCache } from './lib/gemini';
-import { initSync } from './lib/sync';
+import { set } from 'idb-keyval';
+import { initSync, takeLoginFromUrl } from './lib/sync';
 import { startGoalReporting } from './lib/push';
 import './styles.css';
 
@@ -24,6 +25,10 @@ registerSW({
 
 async function start() {
   await Promise.all([loadStore(), loadCache()]);
+  // Back from Google sign-in: the server put a session into the URL fragment
+  const login = await takeLoginFromUrl();
+  if (login === 'ok') await set('setupDone', true);
+  if (login === 'error') sessionStorage.setItem('loginError', '1');
   // Ask iOS not to evict local data; sync is the backup if it does anyway
   void navigator.storage?.persist?.();
   createRoot(document.getElementById('root')!).render(

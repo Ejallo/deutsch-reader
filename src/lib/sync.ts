@@ -2,12 +2,25 @@ import { del, get, set } from 'idb-keyval';
 import { useSyncExternalStore } from 'react';
 import { applyRemote, getData, mergeData, onLocalChange, type AppData } from './store';
 
-// Device-local GitHub connection. Never synced and never part of the public code.
-export interface Connection {
+// Device-local connection. Never synced and never part of the public code.
+// Either your own private GitHub repo, or a friend's account on the app server (Google sign-in).
+export interface GithubConnection {
+  kind?: 'github'; // older saved connections have no kind
   token: string;
   owner: string;
   repo: string;
 }
+
+export interface CloudConnection {
+  kind: 'cloud';
+  session: string;
+  name: string;
+  email: string;
+}
+
+export type Connection = GithubConnection | CloudConnection;
+
+export const ACCOUNT_API = 'https://deutsch-reader-push.vetervlad94.workers.dev';
 
 export type SyncState = { status: 'off' | 'idle' | 'syncing' | 'error'; lastSync: number; error: string };
 
@@ -45,7 +58,7 @@ class GhError extends Error {
   }
 }
 
-async function gh(c: Connection, path: string, init: RequestInit = {}) {
+async function gh(c: GithubConnection, path: string, init: RequestInit = {}) {
   const r = await fetch(API + path, {
     ...init,
     cache: 'no-store',
@@ -86,7 +99,24 @@ function stable(v: unknown): string {
     .join(',')}}`;
 }
 
+async function cloud(c: CloudConnection, method: string, body?: object) {
+  const r = await fetch(`${ACCOUNT_API}/data`, {
+    method,
+    cache: 'no-store',
+    headers: { Authorization: `Bearer ${c.session}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (r.status === 401) throw new GhError(401, 'Вход истёк — выйди и войди через Google снова');
+  return r;
+}
+
 async function fetchRemote(c: Connection): Promise<{ data: AppData | null; sha: string | null }> {
+  if (c.kind === 'cloud') {
+    const r = await cloud(c, 'GET');
+    if (!r.ok) throw new GhError(r.status, `Сервер ответил ошибкой ${r.status}`);
+    const j = await r.json();
+    return { data: j.data, sha: String(j.version) };
+  }
   const r = await gh(c, `/repos/${c.owner}/${c.repo}/contents/${FILE}`);
   if (r.status === 404) return { data: null, sha: null };
   if (!r.ok) throw new GhError(r.status, ghMessage(r.status));
@@ -102,6 +132,13 @@ async function fetchRemote(c: Connection): Promise<{ data: AppData | null; sha: 
 }
 
 async function putRemote(c: Connection, data: AppData, sha: string | null) {
+  if (c.kind === 'cloud') {
+    const r = await cloud(c, 'PUT', { data, version: Number(sha ?? 0) });
+    if (r.status === 409) return false; // another device saved in between
+    if (r.status === 413) throw new GhError(413, 'Слишком много данных для сервера — удали старые длинные тексты');
+    if (!r.ok) throw new GhError(r.status, `Сервер ответил ошибкой ${r.status}`);
+    return true;
+  }
   const r = await gh(c, `/repos/${c.owner}/${c.repo}/contents/${FILE}`, {
     method: 'PUT',
     body: JSON.stringify({ message: 'sync', content: toB64(JSON.stringify(data)), ...(sha ? { sha } : {}) }),
@@ -157,7 +194,7 @@ export async function connect(token: string, repo: string, owner?: string): Prom
     if (!u.ok) throw new Error(u.status === 401 ? ghMessage(401) : 'Не удалось определить логин — впиши его вручную');
     login = (await u.json()).login as string;
   }
-  const c: Connection = { token: token.trim(), owner: login, repo: repo.trim() };
+  const c: GithubConnection = { token: token.trim(), owner: login, repo: repo.trim() };
   const r = await gh(c, `/repos/${c.owner}/${c.repo}`);
   if (!r.ok) throw new Error(ghMessage(r.status));
   if (!(await r.json()).private) throw new Error('Репозиторий публичный — сделай его приватным, там будет твой ключ Gemini');
@@ -168,7 +205,34 @@ export async function connect(token: string, repo: string, owner?: string): Prom
   await syncNow();
 }
 
+async function useConnection(c: Connection) {
+  await set('connection', c);
+  conn = c;
+  setState({ status: 'idle', error: '' });
+  attachListeners();
+  await syncNow();
+}
+
+/** Picks up a session handed back by the server after Google sign-in (URL fragment). */
+export async function takeLoginFromUrl(): Promise<'ok' | 'error' | null> {
+  const hash = new URLSearchParams(location.hash.slice(1));
+  const clean = () => history.replaceState(null, '', location.pathname + location.search);
+  if (location.hash === '#login-error') {
+    clean();
+    return 'error';
+  }
+  const session = hash.get('login');
+  if (!session) return null;
+  clean();
+  await useConnection({ kind: 'cloud', session, name: hash.get('name') ?? '', email: hash.get('email') ?? '' });
+  return 'ok';
+}
+
 export async function disconnect() {
+  const c = conn;
+  if (c?.kind === 'cloud') {
+    await fetch(`${ACCOUNT_API}/auth/logout`, { method: 'POST', headers: { Authorization: `Bearer ${c.session}` } }).catch(() => undefined);
+  }
   await del('connection');
   conn = null;
   setState({ status: 'off', error: '', lastSync: 0 });
@@ -176,7 +240,7 @@ export async function disconnect() {
 
 const CODE_PREFIX = 'DR1:';
 
-export function connectionCode(c: Connection): string {
+export function connectionCode(c: GithubConnection): string {
   return CODE_PREFIX + toB64(JSON.stringify({ t: c.token, o: c.owner, r: c.repo }));
 }
 

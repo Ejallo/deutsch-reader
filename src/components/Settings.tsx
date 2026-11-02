@@ -253,8 +253,49 @@ function SyncSection() {
     );
   }
 
+  const statusLine = (
+    <p className={sync.status === 'error' ? 'error small' : 'muted small'}>
+      {sync.status === 'syncing'
+        ? 'Синхронизация…'
+        : sync.status === 'error'
+          ? sync.error
+          : sync.lastSync
+            ? `Последняя синхронизация: ${new Date(sync.lastSync).toLocaleTimeString('ru-RU')}`
+            : 'Готово'}
+    </p>
+  );
+
+  if (conn.kind === 'cloud') {
+    return (
+      <Group title="Аккаунт">
+        <p className="small" style={{ margin: 0, fontWeight: 700 }}>
+          {conn.name || 'Вход через Google'}
+        </p>
+        {conn.email && (
+          <p className="muted small" style={{ margin: 0 }}>
+            {conn.email}
+          </p>
+        )}
+        {statusLine}
+        <div className="row">
+          <button onClick={() => void syncNow()}>Синхронизировать</button>
+        </div>
+        <p className="muted small">На другом устройстве просто войди через тот же Google-аккаунт.</p>
+        <button
+          className="link danger"
+          onClick={() => {
+            if (confirm('Выйти из аккаунта на этом устройстве? Данные останутся на сервере и на устройстве.')) void disconnect();
+          }}
+        >
+          Выйти
+        </button>
+      </Group>
+    );
+  }
+
+  const gh = conn;
   const showQr = async () => {
-    const c = connectionCode(conn);
+    const c = connectionCode(gh);
     setCode(c);
     // Low error correction keeps the code less dense, which phone cameras read more easily
     setQr(await QRCode.toDataURL(c, { margin: 2, width: 360, errorCorrectionLevel: 'L' }));

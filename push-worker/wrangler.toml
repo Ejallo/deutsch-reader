@@ -7,9 +7,16 @@ compatibility_date = "2026-10-01"
 crons = ["0 * * * *"]
 
 [vars]
+GOOGLE_CLIENT_ID = "638517168513-2n5pta330caejvn46sfljo74dd4tlhk8.apps.googleusercontent.com"
 VAPID_PUBLIC = "BOfLPCjXylsvmyx0FXbtuajbnS1XobXkBbWL0r0ln5JTJqfGEjiUED3TWilSzxJ3QK9QB-GKJGjlDVJKtWqlh7E"
 
 # Subscriptions store
 [[kv_namespaces]]
 binding = "SUBS"
 id = "3208bc50b2284590a79a424bf23a0104"
+
+# Friends' accounts and synced data
+[[d1_databases]]
+binding = "DB"
+database_name = "deutsch-reader-db"
+database_id = "573b7f45-aa45-4bad-b289-a48c6451b60f"

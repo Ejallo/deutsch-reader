@@ -1,6 +1,8 @@
 import { useCallback, useState } from 'react';
 import { connect, connectWithCode } from '../lib/sync';
 import { QrScanner } from './QrScanner';
+import { GoogleButton } from './GoogleButton';
+import { Mascot } from './ui';
 
 type Mode = 'choose' | 'token' | 'scan' | 'code';
 
@@ -40,28 +42,35 @@ export function Setup({ onDone, embedded }: Props) {
   return (
     <div className={embedded ? '' : 'screen'}>
       {!embedded && (
-        <>
-          <h1>Deutsch Reader</h1>
-          <p className="muted">Подключи синхронизацию, чтобы словарь был и на телефоне, и на компе, и не терялся.</p>
-        </>
+        <div style={{ textAlign: 'center', marginTop: 24 }}>
+          <Mascot size={110} />
+          <h1 style={{ marginTop: 18 }}>Deutsch Reader</h1>
+          <p className="muted">Войди, чтобы словарь и прогресс были и на телефоне, и на компе — и не терялись.</p>
+        </div>
       )}
 
       {mode === 'choose' && (
         <div className="stack">
-          <button className="primary wide" onClick={() => setMode('token')}>
-            Первое устройство: ввести токен GitHub
-          </button>
-          <button className="wide" onClick={() => setMode('scan')}>
-            Сканировать QR с другого устройства
-          </button>
-          <button className="wide" onClick={() => setMode('code')}>
-            Вставить код подключения
-          </button>
+          <GoogleButton />
           {!embedded && (
             <button className="link" onClick={onDone}>
-              Пока без синхронизации
+              Пока без входа
             </button>
           )}
+          <details className="other-ways">
+            <summary>Другие способы (свой GitHub)</summary>
+            <div className="stack">
+              <button className="wide" onClick={() => setMode('token')}>
+                Первое устройство: ввести токен GitHub
+              </button>
+              <button className="wide" onClick={() => setMode('scan')}>
+                Сканировать QR с другого устройства
+              </button>
+              <button className="wide" onClick={() => setMode('code')}>
+                Вставить код подключения
+              </button>
+            </div>
+          </details>
         </div>
       )}
 
@@ -80,7 +89,7 @@ export function Setup({ onDone, embedded }: Props) {
             <input value={owner} onChange={(e) => setOwner(e.target.value)} placeholder="необязательно" autoCapitalize="off" />
           </label>
           <button
-            className="primary wide"
+            className="chunky c-peach wide"
             disabled={busy}
             onClick={() => {
               if (!token.trim() || !repo.trim()) return setError('Заполни токен и репозиторий');
@@ -100,7 +109,7 @@ export function Setup({ onDone, embedded }: Props) {
             <span>Код подключения (Настройки → Подключить устройство на другом устройстве)</span>
             <textarea rows={4} value={code} onChange={(e) => setCode(e.target.value)} placeholder="DR1:…" />
           </label>
-          <button className="primary wide" disabled={busy} onClick={() => void run(() => connectWithCode(code))}>
+          <button className="chunky c-peach wide" disabled={busy} onClick={() => void run(() => connectWithCode(code))}>
             {busy ? 'Подключаю…' : 'Подключить'}
           </button>
         </div>

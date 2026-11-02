@@ -2151,3 +2151,18 @@ button.link.danger {
   height: 30px;
   animation: pop 0.35s ease;
 }
+.google-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 44px;
+}
+.other-ways {
+  margin-top: 8px;
+}
+.other-ways summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--sub);
+  text-align: center;
+}
