@@ -6,29 +6,51 @@ import { connectionCode, disconnect, getConnection, syncNow, useSync } from '../
 import { Setup } from './Setup';
 import type { Theme } from '../lib/theme';
 import { disableReminders, enableReminders, isIos, isStandalone, pushSupported, reminderPrefs, sendTestReminder } from '../lib/push';
+import type { ReactNode } from 'react';
+import { TabBar, type Tab } from './TabBar';
+import { StatStrip, TopBar, type Accent } from './ui';
 
 interface Props {
-  onBack: () => void;
+  onTab: (t: Tab) => void;
+  onLearn: () => void;
 }
 
-export function Settings({ onBack }: Props) {
+export function Settings({ onTab, onLearn }: Props) {
   return (
     <div className="screen">
-      <header className="bar">
-        <button className="link" onClick={onBack}>
-          ‹ Назад
-        </button>
-        <h1>Настройки</h1>
-        <span />
-      </header>
+      <TopBar title="Настройки" right={<StatStrip />} />
       <ThemeSection />
-      <GeminiSection />
       <LearnSection />
+      <GeminiSection />
       <ReminderSection />
       <SyncSection />
       <DataSection />
+      <TabBar active="settings" onTab={onTab} onLearn={onLearn} />
     </div>
   );
+}
+
+function Group({ title, children, flush }: { title: string; children: ReactNode; flush?: boolean }) {
+  return (
+    <section className="group">
+      <div className="overline">{title}</div>
+      <div className="group-card">{flush ? children : <div className="group-body">{children}</div>}</div>
+    </section>
+  );
+}
+
+function SetRow({ ic, accent, label, children }: { ic: string; accent: Accent; label: string; children: ReactNode }) {
+  return (
+    <div className="set-row">
+      <span className={`ic c-${accent}`}>{ic}</span>
+      <span className="lbl">{label}</span>
+      {children}
+    </div>
+  );
+}
+
+function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) {
+  return <button className={`switch ${on ? 'on' : ''}`} role="switch" aria-checked={on} aria-label={label} onClick={() => onChange(!on)} />;
 }
 
 function GeminiSection() {
@@ -56,15 +78,16 @@ function GeminiSection() {
   };
 
   return (
-    <section className="card">
-      <h2>Перевод (Gemini)</h2>
-      <label className="field">
-        <span>Ключ API из Google AI Studio</span>
-        <input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="AIza…" autoComplete="off" />
-      </label>
-      <button className="primary" onClick={() => void save()}>
-        Сохранить и проверить
-      </button>
+    <Group title="Перевод · Gemini">
+      <input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="Ключ AIza…" autoComplete="off" />
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <span className="muted small" style={{ fontWeight: 600 }}>
+          {settings.geminiModel ? `✓ ${settings.geminiModel.replace('models/', '')}` : 'Ключ не проверен'}
+        </span>
+        <button className="pill c-mint" onClick={() => void save()}>
+          Проверить
+        </button>
+      </div>
       {models.length > 0 && (
         <label className="field">
           <span>Модель</span>
@@ -77,33 +100,31 @@ function GeminiSection() {
           </select>
         </label>
       )}
-      {settings.geminiModel && !models.length && <p className="muted small">Модель: {settings.geminiModel.replace('models/', '')}</p>}
       {msg && <p className="small">{msg}</p>}
       {error && <p className="error">{error}</p>}
-    </section>
+    </Group>
   );
 }
 
 function ThemeSection() {
   const { settings } = useData();
-  const options: [Theme, string][] = [
-    ['time', 'По времени суток'],
-    ['light', 'Светлая'],
-    ['dark', 'Тёмная'],
-    ['auto', 'Как в телефоне'],
+  const options: [Theme, string, string][] = [
+    ['light', '☀', 'Светлая'],
+    ['dark', '☾', 'Тёмная'],
+    ['time', '◐', 'По времени'],
+    ['auto', '▢', 'Как iOS'],
   ];
   return (
-    <section className="card">
-      <h2>Тема</h2>
-      <p className="muted small">«По времени суток»: светлая с 7:00, тёмная с 20:00.</p>
-      <div className="chips">
-        {options.map(([id, label]) => (
-          <button key={id} className={settings.theme === id ? 'chip on' : 'chip'} onClick={() => updateSettings({ theme: id })}>
+    <Group title="Тема" flush>
+      <div className="theme-tiles">
+        {options.map(([id, ic, label]) => (
+          <button key={id} className={settings.theme === id ? 'on' : ''} onClick={() => updateSettings({ theme: id })}>
+            <span className="ic">{ic}</span>
             {label}
           </button>
         ))}
       </div>
-    </section>
+    </Group>
   );
 }
 
@@ -130,21 +151,21 @@ function ReminderSection() {
 
   if (!pushSupported()) {
     return (
-      <section className="card">
-        <h2>Напоминания</h2>
-        <p className="muted small">
+      <Group title="Напоминания">
+        <p className="muted small" style={{ margin: 0 }}>
           {isIos() && !isStandalone()
             ? 'Напоминания работают только в приложении с экрана «Домой»: Safari → Поделиться → На экран Домой (iOS 16.4+).'
             : 'Напоминания пока недоступны на этом устройстве.'}
         </p>
-      </section>
+      </Group>
     );
   }
 
   return (
-    <section className="card">
-      <h2>Напоминания</h2>
-      <p className="muted small">Пришлю уведомление в выбранный час, если цель дня ещё не выполнена.</p>
+    <Group title="Напоминания">
+      <p className="muted small" style={{ margin: 0 }}>
+        Пришлю уведомление в выбранный час, если цель дня ещё не выполнена.
+      </p>
       <label className="field">
         <span>Во сколько напоминать</span>
         <select
@@ -174,41 +195,40 @@ function ReminderSection() {
             </button>
           </>
         ) : (
-          <button className="primary" disabled={busy} onClick={() => void run(() => enableReminders(prefs.hour), 'Напоминания включены')}>
+          <button className="chunky c-peach" disabled={busy} onClick={() => void run(() => enableReminders(prefs.hour), 'Напоминания включены')}>
             Включить напоминания
           </button>
         )}
       </div>
       {msg && <p className="small">{msg}</p>}
       {error && <p className="error">{error}</p>}
-    </section>
+    </Group>
   );
 }
 
 function LearnSection() {
   const { settings } = useData();
+  const step = (d: number) => updateSettings({ newPerDay: Math.min(30, Math.max(5, settings.newPerDay + d)) });
   return (
-    <section className="card">
-      <h2>Заучивание</h2>
-      <label className="field">
-        <span>Новых слов в день</span>
-        <select value={settings.newPerDay} onChange={(e) => updateSettings({ newPerDay: Number(e.target.value) })}>
-          {[5, 10, 15, 20, 30].map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="toggle">
-        <input type="checkbox" checked={settings.sound} onChange={(e) => updateSettings({ sound: e.target.checked })} />
-        <span>Звуки в ленте</span>
-      </label>
-      <label className="toggle">
-        <input type="checkbox" checked={settings.listening} onChange={(e) => updateSettings({ listening: e.target.checked })} />
-        <span>Аудирование: карточки «послушай» и автоозвучка слов</span>
-      </label>
-    </section>
+    <Group title="Заучивание" flush>
+      <SetRow ic="🎯" accent="mint" label="Новых слов в день">
+        <div className="stepper">
+          <button onClick={() => step(-5)} aria-label="Меньше">
+            −
+          </button>
+          {settings.newPerDay}
+          <button onClick={() => step(5)} aria-label="Больше">
+            +
+          </button>
+        </div>
+      </SetRow>
+      <SetRow ic="🔊" accent="sky" label="Звуки и конфетти">
+        <Switch on={settings.sound} onChange={(v) => updateSettings({ sound: v })} label="Звуки" />
+      </SetRow>
+      <SetRow ic="🎧" accent="peach" label="Аудирование">
+        <Switch on={settings.listening} onChange={(v) => updateSettings({ listening: v })} label="Аудирование" />
+      </SetRow>
+    </Group>
   );
 }
 
@@ -221,11 +241,12 @@ function SyncSection() {
 
   if (sync.status === 'off' || !conn) {
     return (
-      <section className="card">
-        <h2>Синхронизация</h2>
-        <p className="muted small">Не подключена: данные есть только на этом устройстве.</p>
+      <Group title="Синхронизация">
+        <p className="muted small" style={{ margin: 0 }}>
+          Не подключена: данные есть только на этом устройстве.
+        </p>
         <Setup embedded onDone={() => undefined} />
-      </section>
+      </Group>
     );
   }
 
@@ -237,9 +258,8 @@ function SyncSection() {
   };
 
   return (
-    <section className="card">
-      <h2>Синхронизация</h2>
-      <p className="small">
+    <Group title="Синхронизация">
+      <p className="small" style={{ margin: 0 }}>
         Репозиторий: {conn.owner}/{conn.repo}
       </p>
       <p className={sync.status === 'error' ? 'error small' : 'muted small'}>
@@ -277,7 +297,7 @@ function SyncSection() {
       >
         Отключить это устройство
       </button>
-    </section>
+    </Group>
   );
 }
 
@@ -310,15 +330,16 @@ function DataSection() {
   };
 
   return (
-    <section className="card">
-      <h2>Резервная копия</h2>
-      <p className="muted small">Запасной вариант: основная копия — в GitHub.</p>
+    <Group title="Резервная копия">
+      <p className="muted small" style={{ margin: 0 }}>
+        Запасной вариант: основная копия — в GitHub.
+      </p>
       <div className="row">
         <button onClick={exportData}>Экспорт в файл</button>
         <button onClick={() => fileRef.current?.click()}>Импорт из файла</button>
       </div>
       <input ref={fileRef} type="file" accept="application/json" hidden onChange={(e) => void onFile(e.target.files?.[0])} />
       {msg && <p className="small">{msg}</p>}
-    </section>
+    </Group>
   );
 }

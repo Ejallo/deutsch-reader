@@ -11,7 +11,7 @@ const isNightNow = () => {
   return h < DAY_START || h >= NIGHT_START;
 };
 
-const BG = { light: '#faf6ee', dark: '#1b1916' };
+const BG = { light: '#fbf6ee', dark: '#13131c' };
 
 const darkQuery = () => window.matchMedia('(prefers-color-scheme: dark)');
 

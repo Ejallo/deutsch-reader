@@ -71,6 +71,10 @@ export interface Stats extends Rec {
   lastGoalDay: string; // last day the daily goal was met
   freezeUsedDay: string; // day a streak freeze covered
   milestones: number[]; // word-count milestones already celebrated
+  gems: number;
+  freezes: number; // streak freezes won in chests (on top of the free weekly one)
+  chestDay: string; // day the daily chest was claimed
+  boostUntil: number; // epoch ms until which XP is doubled
 }
 
 export const DAILY_GOAL = 20;
@@ -98,9 +102,9 @@ export const emptyData = (): AppData => ({
   texts: {},
   words: {},
   forms: {},
-  settings: { geminiKey: '', geminiModel: '', newPerDay: DEFAULT_NEW_PER_DAY, sound: true, listening: true, readerFont: 'serif', readerSize: 19, readerSpacing: 'normal', theme: 'time', updatedAt: 0 },
+  settings: { geminiKey: '', geminiModel: '', newPerDay: DEFAULT_NEW_PER_DAY, sound: true, listening: true, readerFont: 'onest', readerSize: 19, readerSpacing: 'normal', theme: 'time', updatedAt: 0 },
   progress: { day: '', newIntroduced: 0, reviewed: 0, updatedAt: 0 },
-  stats: { xp: 0, streak: 0, lastGoalDay: '', freezeUsedDay: '', milestones: [], updatedAt: 0 },
+  stats: { xp: 0, streak: 0, lastGoalDay: '', freezeUsedDay: '', milestones: [], gems: 0, freezes: 0, chestDay: '', boostUntil: 0, updatedAt: 0 },
 });
 
 const dayShift = (days: number) => {
@@ -118,9 +122,25 @@ export function freezeAvailable(s: Stats): boolean {
 export function currentStreak(d: AppData): number {
   const s = d.stats;
   if (s.lastGoalDay === todayKey() || s.lastGoalDay === dayShift(-1)) return s.streak;
-  if (s.lastGoalDay === dayShift(-2) && freezeAvailable(s)) return s.streak;
+  if (s.lastGoalDay === dayShift(-2) && (freezeAvailable(s) || s.freezes > 0)) return s.streak;
   return 0;
 }
+
+/** Days (YYYY-MM-DD) the goal was met, reconstructed from the current streak. */
+export function streakDays(d: AppData): Set<string> {
+  const out = new Set<string>();
+  const n = currentStreak(d);
+  if (!n) return out;
+  const last = new Date(`${d.stats.lastGoalDay}T12:00:00`);
+  for (let i = 0; i < n; i++) {
+    const day = new Date(last);
+    day.setDate(last.getDate() - i);
+    out.add(todayKey(day));
+  }
+  return out;
+}
+
+export const xpBoostActive = (d: AppData) => d.stats.boostUntil > Date.now();
 
 export function todayKey(d = new Date()): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -279,9 +299,35 @@ export function countPractice() {
   });
 }
 
-export function addXp(amount: number) {
-  if (amount <= 0) return;
-  update((d) => ({ ...d, stats: { ...d.stats, xp: d.stats.xp + amount, updatedAt: now() } }));
+/** Adds XP (doubled while a chest boost is active); returns what was actually added. */
+export function addXp(amount: number): number {
+  if (amount <= 0) return 0;
+  const gained = xpBoostActive(data) ? amount * 2 : amount;
+  update((d) => ({ ...d, stats: { ...d.stats, xp: d.stats.xp + gained, updatedAt: now() } }));
+  return gained;
+}
+
+export interface ChestRewards {
+  gems: number;
+  freeze: boolean;
+  bonusXp: number;
+  boostMinutes: number;
+}
+
+/** Claims today's chest: gems, then either a streak freeze or bonus XP, plus a 2× XP boost. */
+export function claimChest(r: ChestRewards) {
+  update((d) => ({
+    ...d,
+    stats: {
+      ...d.stats,
+      gems: d.stats.gems + r.gems,
+      freezes: d.stats.freezes + (r.freeze ? 1 : 0),
+      xp: d.stats.xp + r.bonusXp,
+      boostUntil: Date.now() + r.boostMinutes * 60000,
+      chestDay: todayKey(),
+      updatedAt: now(),
+    },
+  }));
 }
 
 /** Called once when today's goal is reached: extends or restarts the streak. */
@@ -292,12 +338,16 @@ export function recordGoal() {
     if (s.lastGoalDay === today) return d;
     let streak = 1;
     let freezeUsedDay = s.freezeUsedDay;
+    let freezes = s.freezes;
     if (s.lastGoalDay === dayShift(-1)) streak = s.streak + 1;
     else if (s.lastGoalDay === dayShift(-2) && freezeAvailable(s)) {
       streak = s.streak + 1;
       freezeUsedDay = dayShift(-1);
+    } else if (s.lastGoalDay === dayShift(-2) && s.freezes > 0) {
+      streak = s.streak + 1;
+      freezes = s.freezes - 1;
     }
-    return { ...d, stats: { ...s, streak, freezeUsedDay, lastGoalDay: today, updatedAt: now() } };
+    return { ...d, stats: { ...s, streak, freezeUsedDay, freezes, lastGoalDay: today, updatedAt: now() } };
   });
 }
 

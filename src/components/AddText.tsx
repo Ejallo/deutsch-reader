@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { addText } from '../lib/store';
+import { TopBar, type Accent } from './ui';
 import {
   generate,
   grimmTales,
@@ -38,13 +39,7 @@ export function AddText({ onBack, onSaved }: Props) {
 
   return (
     <div className="screen">
-      <header className="bar">
-        <button className="link" onClick={onBack}>
-          ‹ Назад
-        </button>
-        <h1>Новый текст</h1>
-        <span />
-      </header>
+      <TopBar title="Новый текст" back="Тексты" onBack={onBack} />
       <div className="segmented" role="tablist">
         {TABS.map(([id, label]) => (
           <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? 'on' : ''} onClick={() => setTab(id)}>
@@ -109,14 +104,31 @@ function PasteTab({ onSave }: SaveProps) {
         />
       </label>
       {error && <p className="error">{error}</p>}
-      <button className="primary wide" onClick={save}>
+      <button className="chunky c-peach wide" onClick={save}>
         Сохранить и читать
       </button>
     </>
   );
 }
 
-const TOPICS = ['Кафе', 'Путешествие', 'Работа', 'Спорт', 'Покупки', 'Квартира', 'Здоровье', 'Детектив'];
+const TOPICS: [string, Accent][] = [
+  ['Кафе', 'butter'],
+  ['Путешествия', 'sky'],
+  ['Работа', 'lav'],
+  ['Спорт', 'mint'],
+  ['Квартира', 'peach'],
+  ['Детектив', 'pink'],
+  ['Покупки', 'sky'],
+  ['Здоровье', 'mint'],
+];
+
+const LEVEL_ACCENT: Record<Level, Accent> = { A1: 'mint', A2: 'mint', B1: 'sky', B2: 'sky', C1: 'lav' };
+
+const LENGTH_OPTIONS: [Length, string, string][] = [
+  ['short', 'Короткий', '~1 мин'],
+  ['medium', 'Средний', '~3 мин'],
+  ['long', 'Длинный', '~6 мин'],
+];
 
 function GenerateTab({ onSave }: SaveProps) {
   const [level, setLevel] = useState<Level>('A2');
@@ -128,54 +140,54 @@ function GenerateTab({ onSave }: SaveProps) {
   const [showAll, setShowAll] = useState(false);
   const { busy, error, run } = useTask();
   const [stage, setStage] = useState<GenStage>('writing');
+  const pickedLabels = allWords.filter((w) => picked.has(w.id)).map((w) => w.label);
 
   return (
     <>
-      <div className="field">
-        <span>Уровень</span>
-        <div className="chips">
-          {LEVELS.map((l) => (
-            <button key={l} className={level === l ? 'chip on' : 'chip'} onClick={() => setLevel(l)}>
-              {l}
-            </button>
-          ))}
-        </div>
+      <div className="overline section-label">Уровень</div>
+      <div className="levels">
+        {LEVELS.map((l) => (
+          <button key={l} className={`c-${LEVEL_ACCENT[l]} ${level === l ? 'on' : ''}`} onClick={() => setLevel(l)}>
+            {l}
+          </button>
+        ))}
       </div>
-      <label className="field">
-        <span>Тема</span>
-        <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="о чём угодно: футбол, Берлин, кофе" />
-      </label>
+      <div className="overline section-label">Тема</div>
+      <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="о чём угодно: футбол, Берлин, кофе…" />
       <div className="chips">
-        {TOPICS.map((t) => (
-          <button key={t} className={topic === t ? 'chip on' : 'chip'} onClick={() => setTopic(t)}>
+        {TOPICS.map(([t, accent]) => (
+          <button key={t} className={`chip topic c-${accent} ${topic === t ? 'on' : ''}`} onClick={() => setTopic(t)}>
+            <span className="dot" />
             {t}
           </button>
         ))}
       </div>
-      <div className="field">
-        <span>Длина</span>
-        <div className="chips">
-          {(
-            [
-              ['short', 'Короткий'],
-              ['medium', 'Средний'],
-              ['long', 'Длинный'],
-            ] as [Length, string][]
-          ).map(([id, label]) => (
-            <button key={id} className={length === id ? 'chip on' : 'chip'} onClick={() => setLength(id)}>
-              {label}
-            </button>
-          ))}
-        </div>
+      <div className="overline section-label">Длина</div>
+      <div className="lengths">
+        {LENGTH_OPTIONS.map(([id, label, time]) => (
+          <button key={id} className={length === id ? 'on' : ''} onClick={() => setLength(id)}>
+            {label}
+            <small>{time}</small>
+          </button>
+        ))}
       </div>
       {allWords.length > 0 && (
         <div className="weave">
-          <label className="toggle">
-            <input type="checkbox" checked={weave} onChange={(e) => setWeave(e.target.checked)} />
+          <button className="weave-toggle" onClick={() => setWeave((v) => !v)} aria-pressed={weave}>
+            <span className={`switch ${weave ? 'on' : ''}`} />
             <span>
-              Добавить изучаемые слова{weave ? ` · выбрано ${picked.size}` : ''}
+              <b>Добавить изучаемые слова{weave ? ` (${picked.size})` : ''}</b>
+              {weave && pickedLabels.length > 0 && (
+                <>
+                  <br />
+                  <span style={{ opacity: 0.7 }}>
+                    {pickedLabels.slice(0, 3).join(', ')}
+                    {pickedLabels.length > 3 ? '…' : ''}
+                  </span>
+                </>
+              )}
             </span>
-          </label>
+          </button>
           {weave && (
             <>
               <div className="weave-list">
@@ -220,8 +232,8 @@ function GenerateTab({ onSave }: SaveProps) {
         </div>
       )}
       {error && <p className="error">{error}</p>}
-      <button className="primary wide" disabled={busy} onClick={() => void run(async () => onSave(await generate(level, topic, length, weave ? allWords.filter((w) => picked.has(w.id)).map((w) => w.label) : [], setStage)))}>
-        {!busy ? 'Создать текст' : stage === 'writing' ? 'Автор пишет текст…' : 'Критик проверяет…'}
+      <button className="chunky c-peach wide" disabled={busy} onClick={() => void run(async () => onSave(await generate(level, topic, length, weave ? pickedLabels : [], setStage)))}>
+        {!busy ? '✦ Создать текст' : stage === 'writing' ? 'Пишем текст…' : 'Редактор проверяет…'}
       </button>
       {busy && <p className="muted small">Обычно это занимает 15–50 секунд.</p>}
     </>
@@ -250,7 +262,7 @@ function LinkTab({ onSave }: SaveProps) {
       <p className="muted small">Подойдут новости, блоги, Википедия.</p>
       {error && <p className="error">{error}</p>}
       <button
-        className="primary wide"
+        className="chunky c-peach wide"
         disabled={busy}
         onClick={() => {
           if (!url.trim()) return setError('Вставь ссылку');

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { addXp, countPractice, currentStreak, DAILY_GOAL, getData, recordGoal, saveReview, todayProgress, updateSettings, useData, type Word } from '../lib/store';
+import { addXp, countPractice, DAILY_GOAL, getData, recordGoal, saveReview, todayProgress, updateSettings, useData, type Word } from '../lib/store';
 import { review, type Answer } from '../lib/srs';
 import { afterAnswer, checkWritten, fullGerman, isSpecial, newSession, nextItem, shortTranslation, type FeedItem } from '../lib/feed';
 import { comboMultiplier, XP } from '../lib/gamify';
 import { sfx, unlockAudio } from '../lib/sfx';
 import { speak } from '../lib/tts';
-import { BlitzCard, ChestCard, GoalCard, MilestoneCard, SentenceCard } from './SpecialCards';
+import { BlitzCard, ChestCard, Confetti, MilestoneCard, SentenceCard } from './SpecialCards';
+import { ChestScreen, LessonSummary, type SessionStats } from './Rewards';
+import { Mascot, PBar } from './ui';
 
 interface Props {
   onClose: () => void;
@@ -13,7 +15,7 @@ interface Props {
 
 type Result = { answer: Answer; picked?: number; typed?: string; xp?: number };
 
-const AUTO_NEXT_MS = 900;
+const AUTO_NEXT_MS = 1100;
 const LEAVE_MS = 260;
 const SWIPE_PX = 60;
 
@@ -29,6 +31,8 @@ export function Feed({ onClose }: Props) {
   const started = useRef(false);
   const autoTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const touchY = useRef<number | null>(null);
+  const stats = useRef<SessionStats>({ xp: 0, correct: 0, wrong: 0, maxCombo: 0 });
+  const [showChest, setShowChest] = useState(false);
 
   const load = useCallback(() => {
     const r = nextItem(getData(), session.current);
@@ -84,8 +88,13 @@ export function Feed({ onClose }: Props) {
     const nextCombo = answer === 'good' ? session.current.combo + 1 : answer === 'hard' ? session.current.combo : 0;
     session.current.combo = nextCombo;
     setCombo(nextCombo);
-    const xp = answer === 'good' ? XP.good * comboMultiplier(nextCombo) : answer === 'hard' ? XP.hard : 0;
-    addXp(xp);
+    const base = answer === 'good' ? XP.good * comboMultiplier(nextCombo) : answer === 'hard' ? XP.hard : 0;
+    const xp = addXp(base);
+    const st = stats.current;
+    st.xp += xp;
+    if (answer === 'again') st.wrong++;
+    else st.correct++;
+    st.maxCombo = Math.max(st.maxCombo, nextCombo);
     if (answer === 'good') sfx.correct(nextCombo);
     else if (answer === 'hard') sfx.almost();
     else sfx.wrong();
@@ -98,12 +107,12 @@ export function Feed({ onClose }: Props) {
   const finishIntro = () => {
     if (!item) return;
     afterAnswer(session.current, item, true, 0);
-    addXp(XP.intro);
+    stats.current.xp += addXp(XP.intro);
     goNext();
   };
 
   const finishSpecial = (xp: number) => {
-    addXp(xp);
+    stats.current.xp += addXp(xp);
     setSpecialDone(true);
   };
 
@@ -112,7 +121,7 @@ export function Feed({ onClose }: Props) {
     countPractice();
     countTowardGoal();
     afterAnswer(session.current, item, true, 0);
-    addXp(xp);
+    stats.current.xp += addXp(xp);
     setSpecialDone(true);
   };
 
@@ -136,7 +145,6 @@ export function Feed({ onClose }: Props) {
   });
 
   const p = todayProgress(data);
-  const streak = currentStreak(data);
   const mult = comboMultiplier(combo);
 
   const renderCard = () => {
@@ -150,7 +158,7 @@ export function Feed({ onClose }: Props) {
       case 'milestone':
         return <MilestoneCard n={item.milestone ?? 0} onShown={() => setSpecialDone(true)} onNext={goNext} />;
       case 'goal':
-        return <GoalCard streak={currentStreak(getData())} onShown={() => setSpecialDone(true)} onNext={goNext} />;
+        return null;
     }
     if (!word) return null;
     switch (item.format) {
@@ -161,7 +169,7 @@ export function Feed({ onClose }: Props) {
       case 'listen':
         return <ListenCard w={word} item={item} result={result} onPick={pick} />;
       case 'article':
-        return <ArticleCard w={word} item={item} result={result} onPick={pick} />;
+        return <ArticleCard w={word} item={item} result={result} onPick={pick} combo={combo} />;
       case 'write':
         return <WriteCard w={word} result={result} onCheck={(typed) => submit(checkWritten(word, typed), { typed })} />;
       case 'sentence':
@@ -185,14 +193,16 @@ export function Feed({ onClose }: Props) {
     >
       <header className="feed-top">
         <button className="feed-close" onClick={onClose} aria-label="Закрыть">
-          ×
+          ✕
         </button>
-        <div className="feed-goal">
-          <div className="feed-goal-bar">
-            <i style={{ width: `${Math.min(100, (p.reviewed / DAILY_GOAL) * 100)}%` }} />
-          </div>
-          <span className={p.reviewed >= DAILY_GOAL ? 'goal-done' : ''}>{p.reviewed >= DAILY_GOAL ? `✓ ${p.reviewed}` : `${p.reviewed}/${DAILY_GOAL}`}</span>
-        </div>
+        <PBar value={p.reviewed / DAILY_GOAL} accent="mint" h={14} />
+        {mult > 1 ? (
+          <span key={mult} className="pill combo-pill">
+            ⚡×{combo}
+          </span>
+        ) : (
+          <span className={`feed-count ${p.reviewed >= DAILY_GOAL ? 'done' : ''}`}>{p.reviewed >= DAILY_GOAL ? `✓ ${p.reviewed}` : `${p.reviewed}/${DAILY_GOAL}`}</span>
+        )}
         <button
           className={`feed-listen ${data.settings.listening ? 'on' : ''}`}
           onClick={() => updateSettings({ listening: !data.settings.listening })}
@@ -201,34 +211,74 @@ export function Feed({ onClose }: Props) {
         >
           {data.settings.listening ? '🎧' : '🔇'}
         </button>
-        <span className={`feed-streak ${streak ? '' : 'off'}`} title="Серия дней">
-          🔥 {streak}
-        </span>
-        {mult > 1 && (
-          <span key={mult} className="feed-combo" title="Комбо">
-            x{mult}
-          </span>
-        )}
       </header>
 
       <div className="feed-stage">
         {empty && <EmptyCard reason={empty} limit={data.settings.newPerDay} onClose={onClose} />}
-        {item && (word || !needsWord) && (
+        {item && (word || !needsWord) && item.format !== 'goal' && (
           <div key={item.key} className={`feed-card ${leaving ? 'leaving' : 'entering'} ${result ? `res-${result.answer}` : ''} fmt-${item.format}`}>
-            {!item.graded && !isSpecial(item.format) && item.format !== 'intro' && item.format !== 'sentence' && <span className="feed-chip">Повторение</span>}
+            {result?.answer === 'good' && combo > 0 && combo % 3 === 0 && <Confetti />}
             {renderCard()}
             {!!result?.xp && <span className="xp-float">+{result.xp} XP</span>}
           </div>
         )}
       </div>
 
-      <div className="feed-bottom">
-        {result && result.answer !== 'good' && (
-          <button className="feed-next" onClick={goNext}>
-            Дальше ↑
-          </button>
-        )}
+      {result && word && <ResultSheet result={result} w={word} combo={combo} onNext={goNext} />}
+
+      {item?.format === 'goal' && !showChest && (
+        <LessonSummary
+          stats={stats.current}
+          onChest={() => setShowChest(true)}
+          onContinue={() => {
+            setSpecialDone(true);
+            goNext();
+          }}
+        />
+      )}
+      {showChest && (
+        <ChestScreen
+          onDone={() => {
+            setShowChest(false);
+            setSpecialDone(true);
+            goNext();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Mint «Richtig!» or soft pink «Почти!» sheet under the card. */
+function ResultSheet({ result, w, combo, onNext }: { result: Result; w: Word; combo: number; onNext: () => void }) {
+  const mult = comboMultiplier(combo);
+  if (result.answer === 'good') {
+    return (
+      <div className="result-sheet c-mint">
+        <div className="head">
+          <div className="mark">✓</div>
+          <div>
+            <div className="ttl">Richtig!</div>
+            <div className="sub">
+              +{result.xp ?? 0} XP{mult > 1 ? ` · комбо ×${combo}` : ''}
+            </div>
+          </div>
+        </div>
+        <button className="chunky c-card" onClick={onNext}>
+          Дальше
+        </button>
       </div>
+    );
+  }
+  return (
+    <div className={`result-sheet ${result.answer === 'hard' ? 'c-butter' : 'c-pink'}`}>
+      <div className="ttl">Почти! 💪</div>
+      <div className="sub">
+        Правильно: <b>{fullGerman(w)}</b> — {shortTranslation(w)}.{result.answer === 'again' ? ' Слово вернётся через пару карточек.' : ''}
+      </div>
+      <button className="chunky c-card" onClick={onNext}>
+        Понятно
+      </button>
     </div>
   );
 }
@@ -241,29 +291,20 @@ function Speaker({ text, big }: { text: string; big?: boolean }) {
   );
 }
 
-function Verdict({ result, w }: { result: Result | null; w: Word }) {
-  if (!result) return null;
-  if (result.answer === 'good') return <p className="verdict good">Верно!</p>;
-  return (
-    <p className={`verdict ${result.answer}`}>
-      {result.answer === 'hard' ? 'Почти! ' : ''}Правильно: <b>{fullGerman(w)}</b>
-    </p>
-  );
-}
-
 function IntroCard({ w, onDone }: { w: Word; onDone: () => void }) {
   return (
     <>
       <span className="feed-label">Новое слово</span>
-      <div className="feed-word">
-        {fullGerman(w)} <Speaker text={fullGerman(w)} />
+      <div className="lesson-card">
+        <Speaker text={fullGerman(w)} />
+        <div className="feed-word">{fullGerman(w)}</div>
+        {w.plural && <p className="muted small" style={{ margin: 0 }}>мн. ч. {w.plural}</p>}
+        <p className="feed-tr">{shortTranslation(w)}</p>
+        {w.meanings && <p className="small muted" style={{ margin: 0 }}>{w.meanings}</p>}
+        {w.example && <p className="feed-example">„{w.example}“</p>}
+        {w.note && <p className="small muted" style={{ margin: 0 }}>{w.note}</p>}
       </div>
-      {w.plural && <p className="muted">мн. {w.plural}</p>}
-      <p className="feed-tr">{shortTranslation(w)}</p>
-      {w.meanings && <p className="small muted">{w.meanings}</p>}
-      {w.example && <p className="feed-example">«{w.example}»</p>}
-      {w.note && <p className="small muted">{w.note}</p>}
-      <button className="primary feed-cta" onClick={onDone}>
+      <button className="chunky c-peach feed-cta" onClick={onDone}>
         Запомнил ↑
       </button>
     </>
@@ -288,11 +329,12 @@ function Options({ item, result, onPick, labels }: { item: FeedItem; result: Res
 function ChooseCard({ w, item, result, onPick }: { w: Word; item: FeedItem; result: Result | null; onPick: (i: number) => void }) {
   return (
     <>
-      <span className="feed-label">Выбери перевод</span>
-      <div className="feed-word">
-        {fullGerman(w)} <Speaker text={fullGerman(w)} />
+      <span className="feed-label">Переведи</span>
+      <div className="lesson-card">
+        <Speaker text={fullGerman(w)} />
+        <div className="feed-word">{fullGerman(w)}</div>
+        {w.example && <p className="feed-example">„{w.example}“</p>}
       </div>
-      {w.example && <p className="feed-example">«{w.example}»</p>}
       <Options item={item} result={result} onPick={onPick} />
     </>
   );
@@ -302,23 +344,35 @@ function ListenCard({ w, item, result, onPick }: { w: Word; item: FeedItem; resu
   return (
     <>
       <span className="feed-label">Послушай и выбери перевод</span>
-      <Speaker text={fullGerman(w)} big />
-      {result && <div className="feed-word">{fullGerman(w)}</div>}
+      <div className="lesson-card">
+        <Speaker text={fullGerman(w)} big />
+        {result && <div className="feed-word">{fullGerman(w)}</div>}
+      </div>
       <Options item={item} result={result} onPick={onPick} />
     </>
   );
 }
 
-function ArticleCard({ w, item, result, onPick }: { w: Word; item: FeedItem; result: Result | null; onPick: (i: number) => void }) {
+function ArticleCard({ w, item, result, onPick, combo }: { w: Word; item: FeedItem; result: Result | null; onPick: (i: number) => void; combo: number }) {
   return (
     <>
       <span className="feed-label">Какой артикль?</span>
-      <div className="feed-word">
-        {result ? fullGerman(w) : <>… {w.lemma}</>}
+      <div className="lesson-card">
+        {result?.answer === 'good' && combo >= 3 && <span className="pill sticker">КОМБО ×{combo} ⚡</span>}
+        <Speaker text={fullGerman(w)} />
+        <div className="feed-word">
+          {result ? (
+            <>
+              <span className="ans-chip">{w.article}</span> {w.lemma}
+            </>
+          ) : (
+            <>___ {w.lemma}</>
+          )}
+        </div>
+        <p className="feed-example">{result ? shortTranslation(w) : w.example ? `„${w.example}“` : shortTranslation(w)}</p>
       </div>
-      <p className="muted">{shortTranslation(w)}</p>
-      {result && w.plural && <p className="small muted">мн. {w.plural}</p>}
       <Options item={item} result={result} onPick={onPick} />
+      {!result && <div className="art-hint">der — синий · die — розовый · das — мятный</div>}
     </>
   );
 }
@@ -341,7 +395,11 @@ function WriteCard({ w, result, onCheck }: { w: Word; result: Result | null; onC
   return (
     <>
       <span className="feed-label">Напиши по-немецки{w.article ? ' с артиклем' : ''}</span>
-      <p className="feed-tr">{shortTranslation(w)}</p>
+      <div className="lesson-card">
+        <div className="feed-word" style={{ fontSize: 26 }}>
+          {shortTranslation(w)}
+        </div>
+      </div>
       <input
         ref={inputRef}
         className={`write-input ${result ? `res-${result.answer}` : ''}`}
@@ -374,13 +432,12 @@ function WriteCard({ w, result, onCheck }: { w: Word; result: Result | null; onC
               </button>
             ))}
           </div>
-          <button className="primary feed-cta" onClick={check}>
+          <button className="chunky c-peach feed-cta" onClick={check}>
             Проверить
           </button>
           {error && <p className="error">{error}</p>}
         </>
       )}
-      <Verdict result={result} w={w} />
     </>
   );
 }
@@ -388,6 +445,7 @@ function WriteCard({ w, result, onCheck }: { w: Word; result: Result | null; onC
 function EmptyCard({ reason, limit, onClose }: { reason: 'empty' | 'limit'; limit: number; onClose: () => void }) {
   return (
     <div className="feed-card entering">
+      <Mascot size={110} />
       {reason === 'empty' ? (
         <>
           <p className="feed-tr">Пока нечего учить</p>
@@ -399,8 +457,8 @@ function EmptyCard({ reason, limit, onClose }: { reason: 'empty' | 'limit'; limi
           <p className="muted">Лимит — {limit} новых в день. Завтра будут ещё.</p>
         </>
       )}
-      <button className="primary feed-cta" onClick={onClose}>
-        К текстам
+      <button className="chunky c-peach feed-cta" onClick={onClose}>
+        Назад
       </button>
     </div>
   );

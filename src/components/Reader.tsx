@@ -6,6 +6,7 @@ import { parseText, sentenceAt, uniqueForms, type Paragraph } from '../lib/text'
 import { translateParagraph, translatePhrase, translateWord } from '../lib/gemini';
 import { WordSheet, type SheetState } from './WordSheet';
 import { SyncBadge } from './SyncBadge';
+import { levelAccent, PBar, Pill, readProgress, textLevel } from './ui';
 
 interface Props {
   id: string;
@@ -28,6 +29,7 @@ export function Reader({ id, onBack }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const reqId = useRef(0);
   const [showLook, setShowLook] = useState(false);
+  const [seen, setSeen] = useState(() => readProgress(id));
   const [speaking, setSpeaking] = useState<number | null>(null);
   const look = data.settings;
 
@@ -41,12 +43,22 @@ export function Reader({ id, onBack }: Props) {
       // no storage: start at the top
     }
     if (saved > 0) requestAnimationFrame(() => window.scrollTo(0, saved * document.documentElement.scrollHeight));
+    try {
+      localStorage.setItem('lastText', id);
+    } catch {
+      // ignore
+    }
     let t: ReturnType<typeof setTimeout> | undefined;
     const onScroll = () => {
       clearTimeout(t);
       t = setTimeout(() => {
+        const h = document.documentElement.scrollHeight;
+        // How much of the text has been on screen at least once (shown as reading progress)
+        const seen = Math.min(1, (window.scrollY + window.innerHeight) / h);
+        setSeen((v) => Math.max(v, seen));
         try {
-          localStorage.setItem(key, String(window.scrollY / document.documentElement.scrollHeight));
+          localStorage.setItem(key, String(window.scrollY / h));
+          localStorage.setItem(`read:${id}`, String(Math.max(seen, Number(localStorage.getItem(`read:${id}`) ?? 0))));
         } catch {
           // ignore
         }
@@ -213,17 +225,22 @@ export function Reader({ id, onBack }: Props) {
 
   return (
     <div className={`screen reader-screen ${sheet ? 'with-sheet' : ''}`}>
-      <header className="bar sticky">
-        <button className="link" onClick={onBack}>
-          ‹ Тексты
+      <header className="reader-head">
+        <button className="sq-btn" onClick={onBack} aria-label="Назад">
+          ‹
         </button>
-        <span className="muted small">Знаешь {known}%</span>
-        <div className="bar-actions">
-          <button className={`icon-btn look-btn ${showLook ? 'on' : ''}`} onClick={() => setShowLook((v) => !v)} aria-label="Шрифт и размер">
-            Aa
-          </button>
-          <SyncBadge />
+        <div className="known">
+          <div className="known-top">
+            <span>Знаешь {known}%</span>
+            <span>
+              абзац {Math.max(1, Math.min(paragraphs.length, Math.ceil(seen * paragraphs.length)))}/{paragraphs.length}
+            </span>
+          </div>
+          <PBar value={known / 100} accent="mint" h={8} />
         </div>
+        <button className={`sq-btn look-btn ${showLook ? 'on' : ''}`} onClick={() => setShowLook((v) => !v)} aria-label="Шрифт и размер">
+          Aa
+        </button>
       </header>
       {showLook && (
         <div className="look-panel">
@@ -254,11 +271,15 @@ export function Reader({ id, onBack }: Props) {
           </div>
         </div>
       )}
+      <div className="pills reader-pills">
+        {textLevel(doc) !== 'DE' && <Pill accent={levelAccent(textLevel(doc))} className="sm">{textLevel(doc)}</Pill>}
+        {doc.source && <span className="pill quiet sm">{doc.source.replace(/^Сгенерировано · \w\d · /, '').replace(/^критик /, '✓ редактор ')}</span>}
+        <SyncBadge />
+      </div>
       <h2 className="reader-title">{doc.title}</h2>
-      {doc.source && <p className="text-source">{doc.source}</p>}
       {doc.notes && doc.notes.length > 0 && (
         <details className="critic-notes">
-          <summary>Что исправил критик</summary>
+          <summary>Что исправил редактор</summary>
           <ul>
             {doc.notes.map((n, i) => (
               <li key={i}>{n}</li>
@@ -270,7 +291,7 @@ export function Reader({ id, onBack }: Props) {
       <div
         ref={containerRef}
         className="reader"
-        style={{ fontFamily: fontFamily(look.readerFont), fontSize: look.readerSize, lineHeight: look.readerSpacing === 'loose' ? 2.05 : 1.75 }}
+        style={{ fontFamily: fontFamily(look.readerFont), fontSize: look.readerSize, lineHeight: look.readerSpacing === 'loose' ? 2 : 1.65 }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}

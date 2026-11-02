@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { translateParagraph, type PhraseInfo, type WordInfo } from '../lib/gemini';
-import { lemmaKey, removeWord, saveWord, useData, wordForForm, type WordStatus } from '../lib/store';
+import { addXp, lemmaKey, removeWord, saveWord, useData, wordForForm, type WordStatus } from '../lib/store';
+import { articleClass } from './ui';
 import { speak } from '../lib/tts';
 
 export type SheetState =
@@ -24,7 +25,9 @@ export function WordSheet({ state, onClose, onRetry }: Props) {
       {state.error && (
         <div>
           <p className="error">{state.error}</p>
-          <button onClick={onRetry}>Повторить</button>
+          <button className="chunky c-card" onClick={onRetry}>
+            Повторить
+          </button>
         </div>
       )}
     </div>
@@ -48,7 +51,9 @@ function WordBody({ state }: { state: Extract<SheetState, { kind: 'word' }> }) {
   const saved = wordForForm(data, state.form) ?? (data.words[key] && !data.words[key].deleted ? data.words[key] : null);
   const full = info.article ? `${info.article} ${info.lemma}` : info.lemma;
 
-  const set = (status: WordStatus) =>
+  const set = (status: WordStatus) => {
+    // Saving a new word to learn earns a little XP
+    if (status === 'learning' && !saved) addXp(5);
     saveWord(state.form, {
       lemma: info.lemma,
       article: info.article,
@@ -60,29 +65,36 @@ function WordBody({ state }: { state: Extract<SheetState, { kind: 'word' }> }) {
       example: state.sentence,
       status,
     });
+  };
 
   return (
     <>
       <div className="sheet-head">
-        <span className="sheet-word">{full}</span>
-        <button className="icon-btn" onClick={() => speak(full)} aria-label="Озвучить">
+        {info.article && <span className={`pill art-pill ${articleClass(info.article)}`}>{info.article}</span>}
+        <span className="sheet-word">{info.lemma}</span>
+        <button className="speak" onClick={() => speak(full)} aria-label="Озвучить">
           🔊
         </button>
       </div>
-      <p className="muted small">
-        {[info.pos, info.plural && `мн. ${info.plural}`].filter(Boolean).join(' · ')}
-      </p>
       <p className="sheet-tr">{info.translation}</p>
-      {info.lemmaTranslation && <p className="small">Значения: {info.lemmaTranslation}</p>}
-      {info.note && <p className="muted small">{info.note}</p>}
+      <p className="muted small" style={{ margin: 0 }}>
+        {[info.pos, info.plural && `мн. ч. ${info.plural}`, info.lemmaTranslation && `значения: ${info.lemmaTranslation}`].filter(Boolean).join(' · ')}
+      </p>
+      {info.note && (
+        <p className="muted small" style={{ margin: '4px 0 0' }}>
+          {info.note}
+        </p>
+      )}
 
       <div className="sheet-actions">
         {!saved && (
           <>
-            <button className="primary" onClick={() => set('learning')}>
-              Учить
+            <button className="chunky c-peach" onClick={() => set('learning')}>
+              + В словарь <span className="xp">+5 XP</span>
             </button>
-            <button onClick={() => set('known')}>Знаю</button>
+            <button className="chunky c-card" style={{ flex: '0 0 auto' }} onClick={() => set('known')}>
+              Знаю
+            </button>
           </>
         )}
         {saved?.status === 'learning' && (
@@ -113,7 +125,7 @@ function PhraseBody({ state }: { state: Extract<SheetState, { kind: 'phrase' }> 
     <>
       <div className="sheet-head">
         <span className="sheet-word phrase">{state.phrase}</span>
-        <button className="icon-btn" onClick={() => speak(state.phrase)} aria-label="Озвучить">
+        <button className="speak" onClick={() => speak(state.phrase)} aria-label="Озвучить">
           🔊
         </button>
       </div>

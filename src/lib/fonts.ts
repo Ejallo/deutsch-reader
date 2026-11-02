@@ -1,9 +1,10 @@
 // Reader typefaces. System ones need no download; web fonts load from Google Fonts on first use
 // and are cached by the service worker for offline reading.
 
-export type ReaderFont = 'serif' | 'sans' | 'literata' | 'nunito' | 'lexend';
+export type ReaderFont = 'onest' | 'serif' | 'sans' | 'literata' | 'nunito' | 'lexend';
 
 export const READER_FONTS: { id: ReaderFont; label: string; family: string; google?: string }[] = [
+  { id: 'onest', label: 'Обычный', family: "'Onest', system-ui, sans-serif" },
   { id: 'serif', label: 'Книжный', family: "ui-serif, 'New York', Georgia, serif" },
   { id: 'sans', label: 'Строгий', family: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" },
   { id: 'literata', label: 'Литературный', family: "'Literata', Georgia, serif", google: 'Literata:opsz,wght@7..72,400;7..72,600' },

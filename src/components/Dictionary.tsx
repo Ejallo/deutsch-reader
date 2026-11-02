@@ -2,23 +2,22 @@ import { useMemo, useState } from 'react';
 import { removeWord, resetWordProgress, updateWord, useData, type Word } from '../lib/store';
 import { fullGerman, shortTranslation } from '../lib/feed';
 import { speak } from '../lib/tts';
-import { SyncBadge } from './SyncBadge';
 import { TabBar, type Tab } from './TabBar';
+import { articleClass, StatStrip, TopBar } from './ui';
 
 interface Props {
   onTab: (t: Tab) => void;
   onLearn: () => void;
-  onSettings: () => void;
 }
 
 type Filter = 'all' | 'learning' | 'known' | 'hard' | 'soon';
 
 const FILTERS: [Filter, string][] = [
   ['all', 'Все'],
+  ['soon', 'Повтор'],
   ['learning', 'Учу'],
   ['known', 'Знаю'],
   ['hard', 'Трудные'],
-  ['soon', 'Повтор сегодня'],
 ];
 
 const DAY = 86400000;
@@ -46,7 +45,7 @@ function nextReview(w: Word): string {
 
 function Dots({ n }: { n: number }) {
   return (
-    <span className="dots" aria-label={`Прочность ${n} из 5`}>
+    <span className="mastery" aria-label={`Прочность ${n} из 5`}>
       {[1, 2, 3, 4, 5].map((i) => (
         <i key={i} className={i <= n ? 'on' : ''} />
       ))}
@@ -54,7 +53,7 @@ function Dots({ n }: { n: number }) {
   );
 }
 
-export function Dictionary({ onTab, onLearn, onSettings }: Props) {
+export function Dictionary({ onTab, onLearn }: Props) {
   const data = useData();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
@@ -69,6 +68,7 @@ export function Dictionary({ onTab, onLearn, onSettings }: Props) {
       learning: words.filter((w) => w.status === 'learning').length,
       known: words.filter((w) => w.status === 'known').length,
       solid: words.filter((w) => strength(w) >= 4).length,
+      due: words.filter((w) => w.status === 'learning' && w.card && w.card.due <= new Date().setHours(23, 59, 59, 999)).length,
       week: words.filter((w) => w.createdAt >= weekAgo).length,
       hard: words.filter(isHard).length,
     };
@@ -93,42 +93,33 @@ export function Dictionary({ onTab, onLearn, onSettings }: Props) {
 
   return (
     <div className="screen">
-      <header className="bar">
-        <h1>Словарь</h1>
-        <div className="bar-actions">
-          <SyncBadge />
-          <button className="icon-btn" onClick={onSettings} aria-label="Настройки">
-            ⚙︎
-          </button>
-        </div>
-      </header>
+      <TopBar title="Словарь" right={<StatStrip />} />
 
       <div className="dict-stats">
-        <div>
+        <div className="c-lav">
           <b>{stats.total}</b>
           <span>всего</span>
         </div>
-        <div>
-          <b>{stats.solid}</b>
-          <span>закреплено</span>
+        <div className="c-mint">
+          <b>{stats.known}</b>
+          <span>знаю</span>
         </div>
-        <div>
+        <div className="c-butter">
           <b>+{stats.week}</b>
-          <span>за неделю</span>
+          <span>неделя</span>
         </div>
-        <div className={stats.hard ? 'warn' : ''}>
+        <div className="c-pink">
           <b>{stats.hard}</b>
           <span>трудных</span>
         </div>
       </div>
 
-      <input className="dict-search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по-немецки или по-русски" />
-      <div className="chips">
+      <input className="dict-search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="⌕  Поиск по-немецки или по-русски" />
+      <div className="chips tight">
         {FILTERS.map(([id, label]) => (
-          <button key={id} className={filter === id ? 'chip on' : 'chip'} onClick={() => setFilter(id)}>
+          <button key={id} className={filter === id ? 'chip on' : id === 'soon' && stats.due ? 'chip accent c-peach' : 'chip'} onClick={() => setFilter(id)}>
             {label}
-            {id === 'learning' && ` ${stats.learning}`}
-            {id === 'known' && ` ${stats.known}`}
+            {id === 'soon' && stats.due > 0 && ` ${stats.due}`}
           </button>
         ))}
       </div>
@@ -144,12 +135,23 @@ export function Dictionary({ onTab, onLearn, onSettings }: Props) {
           {shown.map((w) => (
             <li key={w.id}>
               <button className="dict-row" onClick={() => setOpenId(w.id)}>
-                <span className="dict-de">{fullGerman(w)}</span>
-                <span className="dict-ru">{shortTranslation(w)}</span>
-                <span className="dict-meta">
+                <span className={`art-bar ${articleClass(w.article)}`} />
+                <span className="dict-main">
+                  <span className="dict-de">
+                    {w.article && <span className="a">{w.article} </span>}
+                    {w.lemma}
+                  </span>
+                  <span className="dict-ru ellipsis" style={{ display: 'block' }}>
+                    {shortTranslation(w)}
+                  </span>
+                </span>
+                <span className="dict-side">
                   <Dots n={strength(w)} />
-                  <span>{nextReview(w)}</span>
-                  {isHard(w) && <span className="tag tag-learning">трудное</span>}
+                  {w.status === 'learning' && w.card && w.card.due <= Date.now() ? (
+                    <span className="due-label">повторить</span>
+                  ) : isHard(w) ? (
+                    <span className="due-label">трудное</span>
+                  ) : null}
                 </span>
               </button>
             </li>
@@ -181,8 +183,9 @@ function WordDetails({ w, onClose }: { w: Word; onClose: () => void }) {
           ×
         </button>
         <div className="sheet-head">
-          <span className="sheet-word">{fullGerman(w)}</span>
-          <button className="icon-btn" onClick={() => speak(fullGerman(w))} aria-label="Озвучить">
+          {w.article && <span className={`pill art-pill ${articleClass(w.article)}`}>{w.article}</span>}
+          <span className="sheet-word">{w.lemma}</span>
+          <button className="speak" onClick={() => speak(fullGerman(w))} aria-label="Озвучить">
             🔊
           </button>
         </div>
@@ -199,7 +202,7 @@ function WordDetails({ w, onClose }: { w: Word; onClose: () => void }) {
               <input value={meanings} onChange={(e) => setMeanings(e.target.value)} />
             </label>
             <div className="row">
-              <button className="primary" onClick={save}>
+              <button className="chunky c-mint" onClick={save}>
                 Сохранить
               </button>
               <button onClick={() => setEditing(false)}>Отмена</button>

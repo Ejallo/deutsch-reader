@@ -1,6 +1,6 @@
-import { todayProgress, updateSettings, useData } from '../lib/store';
+import { todayProgress, useData, type AppData } from '../lib/store';
 
-export type Tab = 'library' | 'words';
+export type Tab = 'home' | 'library' | 'words' | 'settings';
 
 interface Props {
   active: Tab;
@@ -8,36 +8,41 @@ interface Props {
   onLearn: () => void;
 }
 
-/** Bottom bar on the main screens; the badge counts cards waiting today. */
-export function TabBar({ active, onTab, onLearn }: Props) {
-  const data = useData();
+/** Cards waiting today: reviews due now plus new words still allowed today. */
+export function waitingCards(d: AppData): number {
   const now = Date.now();
-  const learning = Object.values(data.words).filter((w) => !w.deleted && w.status === 'learning');
+  const learning = Object.values(d.words).filter((w) => !w.deleted && w.status === 'learning');
   const due = learning.filter((w) => w.card && w.card.due <= now).length;
-  const newLeft = Math.max(0, data.settings.newPerDay - todayProgress(data).newIntroduced);
-  const fresh = Math.min(newLeft, learning.filter((w) => !w.card).length);
-  const waiting = due + fresh;
+  const newLeft = Math.max(0, d.settings.newPerDay - todayProgress(d).newIntroduced);
+  return due + Math.min(newLeft, learning.filter((w) => !w.card).length);
+}
+
+const TABS: [Tab, string, string][] = [
+  ['home', 'Главная', '◉'],
+  ['library', 'Тексты', '▤'],
+  ['words', 'Словарь', '◈'],
+  ['settings', 'Настройки', '⚙︎'],
+];
+
+export function TabBar({ active, onTab, onLearn }: Props) {
+  const waiting = waitingCards(useData());
+  const tab = ([id, label, ic]: [Tab, string, string]) => (
+    <button key={id} className={`tab ${active === id ? 'active' : ''}`} onClick={() => onTab(id)}>
+      <span className="ic" aria-hidden="true">
+        {ic}
+      </span>
+      {label}
+    </button>
+  );
 
   return (
     <nav className="tabbar">
-      <button className={`tab nav ${active === 'library' ? 'active' : ''}`} onClick={() => onTab('library')}>
-        Тексты
-      </button>
-      <button className={`tab nav ${active === 'words' ? 'active' : ''}`} onClick={() => onTab('words')}>
-        Словарь
-      </button>
-      <button
-        className={`tab listen-toggle ${data.settings.listening ? 'on' : ''}`}
-        onClick={() => updateSettings({ listening: !data.settings.listening })}
-        aria-label={data.settings.listening ? 'Аудирование включено' : 'Аудирование выключено'}
-        title="Аудирование"
-      >
-        {data.settings.listening ? '🎧' : '🔇'}
-      </button>
-      <button className="tab learn" onClick={onLearn}>
-        Учить
+      {TABS.slice(0, 2).map(tab)}
+      <button className="tab-learn" onClick={onLearn}>
+        {waiting > 0 ? 'Учить' : '✓'}
         {waiting > 0 && <span className="badge">{waiting}</span>}
       </button>
+      {TABS.slice(2).map(tab)}
     </nav>
   );
 }
