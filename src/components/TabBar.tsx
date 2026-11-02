@@ -1,11 +1,15 @@
 import { todayProgress, updateSettings, useData } from '../lib/store';
 
+export type Tab = 'library' | 'words';
+
 interface Props {
+  active: Tab;
+  onTab: (t: Tab) => void;
   onLearn: () => void;
 }
 
-/** Bottom bar on the library screen; the badge counts cards waiting today. */
-export function TabBar({ onLearn }: Props) {
+/** Bottom bar on the main screens; the badge counts cards waiting today. */
+export function TabBar({ active, onTab, onLearn }: Props) {
   const data = useData();
   const now = Date.now();
   const learning = Object.values(data.words).filter((w) => !w.deleted && w.status === 'learning');
@@ -16,7 +20,12 @@ export function TabBar({ onLearn }: Props) {
 
   return (
     <nav className="tabbar">
-      <span className="tab active">Тексты</span>
+      <button className={`tab nav ${active === 'library' ? 'active' : ''}`} onClick={() => onTab('library')}>
+        Тексты
+      </button>
+      <button className={`tab nav ${active === 'words' ? 'active' : ''}`} onClick={() => onTab('words')}>
+        Словарь
+      </button>
       <button
         className={`tab listen-toggle ${data.settings.listening ? 'on' : ''}`}
         onClick={() => updateSettings({ listening: !data.settings.listening })}
@@ -26,7 +35,7 @@ export function TabBar({ onLearn }: Props) {
         {data.settings.listening ? '🎧' : '🔇'}
       </button>
       <button className="tab learn" onClick={onLearn}>
-        Учить слова
+        Учить
         {waiting > 0 && <span className="badge">{waiting}</span>}
       </button>
     </nav>

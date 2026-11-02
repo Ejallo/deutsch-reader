@@ -1,5 +1,6 @@
 import { get, set } from 'idb-keyval';
 import { useSyncExternalStore } from 'react';
+import type { ReaderFont } from './fonts';
 
 // Every synced record carries updatedAt; merges keep the newest version.
 // Deletions are tombstones (deleted: true) so they propagate between devices.
@@ -57,6 +58,9 @@ export interface Settings extends Rec {
   newPerDay: number;
   sound: boolean;
   listening: boolean; // off = no listening cards and no automatic pronunciation
+  readerFont: ReaderFont;
+  readerSize: number;
+  readerSpacing: 'normal' | 'loose';
 }
 
 export interface Stats extends Rec {
@@ -92,7 +96,7 @@ export const emptyData = (): AppData => ({
   texts: {},
   words: {},
   forms: {},
-  settings: { geminiKey: '', geminiModel: '', newPerDay: DEFAULT_NEW_PER_DAY, sound: true, listening: true, updatedAt: 0 },
+  settings: { geminiKey: '', geminiModel: '', newPerDay: DEFAULT_NEW_PER_DAY, sound: true, listening: true, readerFont: 'serif', readerSize: 19, readerSpacing: 'normal', updatedAt: 0 },
   progress: { day: '', newIntroduced: 0, reviewed: 0, updatedAt: 0 },
   stats: { xp: 0, streak: 0, lastGoalDay: '', freezeUsedDay: '', milestones: [], updatedAt: 0 },
 });
@@ -291,6 +295,19 @@ export function recordGoal() {
 
 export function markMilestone(n: number) {
   update((d) => ({ ...d, stats: { ...d.stats, milestones: [...d.stats.milestones, n], updatedAt: now() } }));
+}
+
+export function updateWord(key: string, patch: Partial<Pick<Word, 'translation' | 'meanings' | 'status'>>) {
+  update((d) => ({ ...d, words: { ...d.words, [key]: { ...d.words[key], ...patch, updatedAt: now() } } }));
+}
+
+/** Forgets the review history so the word starts over as new. */
+export function resetWordProgress(key: string) {
+  update((d) => {
+    const w = { ...d.words[key], status: 'learning' as const, updatedAt: now() };
+    delete w.card;
+    return { ...d, words: { ...d.words, [key]: w } };
+  });
 }
 
 export function updateSettings(patch: Partial<Omit<Settings, 'updatedAt'>>) {

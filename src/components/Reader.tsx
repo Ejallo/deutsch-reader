@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { deleteText, lemmaKey, linkForm, statusOf, useData } from '../lib/store';
+import { deleteText, lemmaKey, linkForm, statusOf, updateSettings, useData } from '../lib/store';
+import { fontFamily, READER_FONTS, READER_SIZES } from '../lib/fonts';
+import { speak, stopSpeaking } from '../lib/tts';
 import { parseText, sentenceAt, uniqueForms, type Paragraph } from '../lib/text';
 import { translateParagraph, translatePhrase, translateWord } from '../lib/gemini';
 import { WordSheet, type SheetState } from './WordSheet';
@@ -25,6 +27,48 @@ export function Reader({ id, onBack }: Props) {
   const [paraTr, setParaTr] = useState<Record<number, ParaTr>>({});
   const containerRef = useRef<HTMLDivElement>(null);
   const reqId = useRef(0);
+  const [showLook, setShowLook] = useState(false);
+  const [speaking, setSpeaking] = useState<number | null>(null);
+  const look = data.settings;
+
+  // Bookmark: remember how far this text was scrolled (per device) and come back there
+  useEffect(() => {
+    const key = `pos:${id}`;
+    let saved = 0;
+    try {
+      saved = Number(localStorage.getItem(key) ?? 0);
+    } catch {
+      // no storage: start at the top
+    }
+    if (saved > 0) requestAnimationFrame(() => window.scrollTo(0, saved * document.documentElement.scrollHeight));
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const onScroll = () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        try {
+          localStorage.setItem(key, String(window.scrollY / document.documentElement.scrollHeight));
+        } catch {
+          // ignore
+        }
+      }, 300);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      clearTimeout(t);
+      stopSpeaking();
+    };
+  }, [id]);
+
+  const readAloud = (i: number) => {
+    if (speaking === i) {
+      stopSpeaking();
+      setSpeaking(null);
+      return;
+    }
+    setSpeaking(i);
+    speak(paragraphs[i].text, () => setSpeaking((cur) => (cur === i ? null : cur)));
+  };
 
   const known = useMemo(() => {
     const forms = uniqueForms(doc?.content ?? '');
@@ -174,8 +218,42 @@ export function Reader({ id, onBack }: Props) {
           ‹ Тексты
         </button>
         <span className="muted small">Знаешь {known}%</span>
-        <SyncBadge />
+        <div className="bar-actions">
+          <button className={`icon-btn look-btn ${showLook ? 'on' : ''}`} onClick={() => setShowLook((v) => !v)} aria-label="Шрифт и размер">
+            Aa
+          </button>
+          <SyncBadge />
+        </div>
       </header>
+      {showLook && (
+        <div className="look-panel">
+          <div className="look-row">
+            <span>Размер</span>
+            <button onClick={() => updateSettings({ readerSize: Math.max(READER_SIZES.min, look.readerSize - 1) })} aria-label="Меньше">
+              A−
+            </button>
+            <b>{look.readerSize}</b>
+            <button onClick={() => updateSettings({ readerSize: Math.min(READER_SIZES.max, look.readerSize + 1) })} aria-label="Больше">
+              A+
+            </button>
+          </div>
+          <div className="chips">
+            {READER_FONTS.map((f) => (
+              <button key={f.id} className={look.readerFont === f.id ? 'chip on' : 'chip'} style={{ fontFamily: fontFamily(f.id) }} onClick={() => updateSettings({ readerFont: f.id })}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <div className="chips">
+            <button className={look.readerSpacing === 'normal' ? 'chip on' : 'chip'} onClick={() => updateSettings({ readerSpacing: 'normal' })}>
+              Обычный интервал
+            </button>
+            <button className={look.readerSpacing === 'loose' ? 'chip on' : 'chip'} onClick={() => updateSettings({ readerSpacing: 'loose' })}>
+              Свободный
+            </button>
+          </div>
+        </div>
+      )}
       <h2 className="reader-title">{doc.title}</h2>
       {doc.source && <p className="text-source">{doc.source}</p>}
       {doc.notes && doc.notes.length > 0 && (
@@ -192,6 +270,7 @@ export function Reader({ id, onBack }: Props) {
       <div
         ref={containerRef}
         className="reader"
+        style={{ fontFamily: fontFamily(look.readerFont), fontSize: look.readerSize, lineHeight: look.readerSpacing === 'loose' ? 2.05 : 1.75 }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -211,9 +290,14 @@ export function Reader({ id, onBack }: Props) {
                 ),
               )}
             </p>
-            <button className="para-btn" onClick={() => void translatePara(pi)}>
-              {paraTr[pi]?.loading ? 'Перевожу…' : paraTr[pi]?.text ? 'Скрыть перевод' : 'Перевести абзац'}
-            </button>
+            <div className="para-actions">
+              <button className="para-btn" onClick={() => void translatePara(pi)}>
+                {paraTr[pi]?.loading ? 'Перевожу…' : paraTr[pi]?.text ? 'Скрыть перевод' : 'Перевести абзац'}
+              </button>
+              <button className="para-btn" onClick={() => readAloud(pi)}>
+                {speaking === pi ? '■ Стоп' : '🔊 Слушать'}
+              </button>
+            </div>
             {paraTr[pi]?.text && <p className="para-tr">{paraTr[pi].text}</p>}
             {paraTr[pi]?.error && <p className="error small">{paraTr[pi].error}</p>}
           </div>

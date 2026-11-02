@@ -1,4 +1,5 @@
-import type { PhraseInfo, WordInfo } from '../lib/gemini';
+import { useEffect, useState } from 'react';
+import { translateParagraph, type PhraseInfo, type WordInfo } from '../lib/gemini';
 import { lemmaKey, removeWord, saveWord, useData, wordForForm, type WordStatus } from '../lib/store';
 import { speak } from '../lib/tts';
 
@@ -19,6 +20,7 @@ export function WordSheet({ state, onClose, onRetry }: Props) {
         ×
       </button>
       {state.kind === 'word' ? <WordBody state={state} /> : <PhraseBody state={state} />}
+      <SentenceTools sentence={state.sentence} />
       {state.error && (
         <div>
           <p className="error">{state.error}</p>
@@ -124,5 +126,37 @@ function PhraseBody({ state }: { state: Extract<SheetState, { kind: 'phrase' }> 
         !state.error && <p className="muted">Перевожу…</p>
       )}
     </>
+  );
+}
+
+/** Whole-sentence help under any word: listen to it or see its translation. */
+function SentenceTools({ sentence }: { sentence: string }) {
+  const [tr, setTr] = useState<{ loading?: boolean; text?: string; error?: string }>({});
+  useEffect(() => setTr({}), [sentence]);
+
+  const translate = async () => {
+    setTr({ loading: true });
+    try {
+      setTr({ text: await translateParagraph(sentence) });
+    } catch (e) {
+      setTr({ error: (e as Error).message });
+    }
+  };
+
+  return (
+    <div className="sentence-tools">
+      <div className="row">
+        <button className="para-btn" onClick={() => speak(sentence)}>
+          🔊 Предложение
+        </button>
+        {!tr.text && (
+          <button className="para-btn" onClick={() => void translate()} disabled={tr.loading}>
+            {tr.loading ? 'Перевожу…' : 'Перевод предложения'}
+          </button>
+        )}
+      </div>
+      {tr.text && <p className="para-tr">{tr.text}</p>}
+      {tr.error && <p className="error small">{tr.error}</p>}
+    </div>
   );
 }

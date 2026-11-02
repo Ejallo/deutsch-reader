@@ -11,6 +11,16 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      workbox: {
+        // Reader web fonts: cache after first use so texts render offline
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/fonts\.(googleapis|gstatic)\.com\/.*/,
+            handler: 'CacheFirst',
+            options: { cacheName: 'google-fonts', expiration: { maxEntries: 30, maxAgeSeconds: 60 * 60 * 24 * 365 } },
+          },
+        ],
+      },
       includeAssets: ['apple-touch-icon.png', 'icon.svg'],
       manifest: {
         name: 'Deutsch Reader',

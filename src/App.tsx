@@ -6,9 +6,11 @@ import { Reader } from './components/Reader';
 import { Settings } from './components/Settings';
 import { Setup } from './components/Setup';
 import { Feed } from './components/Feed';
+import { Dictionary } from './components/Dictionary';
+import type { Tab } from './components/TabBar';
 import { useSync } from './lib/sync';
 
-export type View = { name: 'library' } | { name: 'add' } | { name: 'reader'; id: string } | { name: 'settings' } | { name: 'feed' };
+export type View = { name: 'library' } | { name: 'add' } | { name: 'reader'; id: string } | { name: 'settings' } | { name: 'feed' } | { name: 'words' };
 
 export function App() {
   const [view, setView] = useState<View>({ name: 'library' });
@@ -25,6 +27,8 @@ export function App() {
     setSetupDone(true);
   };
 
+  const onTab = (t: Tab) => setView(t === 'words' ? { name: 'words' } : { name: 'library' });
+
   if (setupDone === null) return null;
   if (!setupDone && sync.status === 'off') return <Setup onDone={finishSetup} />;
 
@@ -37,6 +41,8 @@ export function App() {
       return <Settings onBack={() => setView({ name: 'library' })} />;
     case 'feed':
       return <Feed onClose={() => setView({ name: 'library' })} />;
+    case 'words':
+      return <Dictionary onTab={onTab} onLearn={() => setView({ name: 'feed' })} onSettings={() => setView({ name: 'settings' })} />;
     default:
       return (
         <Library
@@ -44,6 +50,7 @@ export function App() {
           onAdd={() => setView({ name: 'add' })}
           onSettings={() => setView({ name: 'settings' })}
           onLearn={() => setView({ name: 'feed' })}
+          onTab={onTab}
         />
       );
   }

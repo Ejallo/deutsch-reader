@@ -3,16 +3,17 @@ import { currentStreak, liveTexts, statusOf, useData } from '../lib/store';
 import { levelOf } from '../lib/gamify';
 import { uniqueForms } from '../lib/text';
 import { SyncBadge } from './SyncBadge';
-import { TabBar } from './TabBar';
+import { TabBar, type Tab } from './TabBar';
 
 interface Props {
   onOpen: (id: string) => void;
   onAdd: () => void;
   onSettings: () => void;
   onLearn: () => void;
+  onTab: (t: Tab) => void;
 }
 
-export function Library({ onOpen, onAdd, onSettings, onLearn }: Props) {
+export function Library({ onOpen, onAdd, onSettings, onLearn, onTab }: Props) {
   const data = useData();
   const texts = liveTexts(data);
 
@@ -80,7 +81,7 @@ export function Library({ onOpen, onAdd, onSettings, onLearn }: Props) {
           +
         </button>
       )}
-      <TabBar onLearn={onLearn} />
+      <TabBar active="library" onTab={onTab} onLearn={onLearn} />
     </div>
   );
 }
