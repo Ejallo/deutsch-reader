@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { removeWord, removeWords, resetWordProgress, updateWord, useData, type Word } from '../lib/store';
+import { liveChunks, removeChunks, removeWord, removeWords, resetChunkProgress, resetWordProgress, updateChunk, updateWord, useData, type Chunk, type Word } from '../lib/store';
 import { AddWordSheet } from './AddWordSheet';
 import { fullGerman, shortTranslation } from '../lib/feed';
 import { speak } from '../lib/tts';
@@ -23,8 +23,11 @@ const FILTERS: [Filter, string][] = [
 
 const DAY = 86400000;
 
+/** What strength, due dates and filters need: both words and chunks have it. */
+type Card = Pick<Word, 'status' | 'card'>;
+
 /** 1–5 dots from FSRS stability (days the memory is expected to hold). */
-export function strength(w: Word): number {
+export function strength(w: Card): number {
   if (w.status === 'known') return 5;
   const s = w.card?.stability ?? 0;
   if (!w.card) return 0;
@@ -32,9 +35,9 @@ export function strength(w: Word): number {
 }
 
 /** Words the learner keeps forgetting. */
-export const isHard = (w: Word) => w.status === 'learning' && !!w.card && (w.card.lapses >= 2 || (w.card.reps >= 3 && w.card.stability < 1));
+export const isHard = (w: Card) => w.status === 'learning' && !!w.card && (w.card.lapses >= 2 || (w.card.reps >= 3 && w.card.stability < 1));
 
-function nextReview(w: Word): string {
+function nextReview(w: Card): string {
   if (w.status === 'known') return 'знаешь';
   if (!w.card) return 'ещё не начато';
   const diff = w.card.due - Date.now();
@@ -55,6 +58,28 @@ function Dots({ n }: { n: number }) {
 }
 
 export function Dictionary({ onTab, onLearn }: Props) {
+  const [segment, setSegment] = useState<'words' | 'chunks'>('words');
+  const toggle = (
+    <div className="segment">
+      <button className={segment === 'words' ? 'on' : ''} onClick={() => setSegment('words')}>
+        Слова
+      </button>
+      <button className={segment === 'chunks' ? 'on' : ''} onClick={() => setSegment('chunks')}>
+        🧩 Чанки
+      </button>
+    </div>
+  );
+  return (
+    <div className="screen">
+      <TopBar title="Словарь" right={<StatStrip />} />
+      {toggle}
+      {segment === 'words' ? <WordsBody /> : <ChunksBody />}
+      <TabBar active="words" onTab={onTab} onLearn={onLearn} />
+    </div>
+  );
+}
+
+function WordsBody() {
   const data = useData();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
@@ -96,9 +121,7 @@ export function Dictionary({ onTab, onLearn }: Props) {
   const open = openId ? data.words[openId] : null;
 
   return (
-    <div className="screen">
-      <TopBar title="Словарь" right={<StatStrip />} />
-
+    <>
       <div className="dict-stats">
         <div className="c-lav">
           <b>{stats.total}</b>
@@ -214,8 +237,177 @@ export function Dictionary({ onTab, onLearn }: Props) {
       )}
       {adding && <AddWordSheet onClose={() => setAdding(false)} />}
       {open && !open.deleted && <WordDetails w={open} onClose={() => setOpenId(null)} />}
-      <TabBar active="words" onTab={onTab} onLearn={onLearn} />
-    </div>
+    </>
+  );
+}
+
+function ChunksBody() {
+  const data = useData();
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<Filter>('all');
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  const chunks = useMemo(() => liveChunks(data), [data]);
+  const endOfDay = new Date().setHours(23, 59, 59, 999);
+  const due = chunks.filter((c) => c.status === 'learning' && c.card && c.card.due <= endOfDay).length;
+
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return chunks
+      .filter((c) => {
+        if (filter === 'learning' && c.status !== 'learning') return false;
+        if (filter === 'known' && c.status !== 'known') return false;
+        if (filter === 'hard' && !isHard(c)) return false;
+        if (filter === 'soon' && !(c.status === 'learning' && c.card && c.card.due <= endOfDay)) return false;
+        if (!q) return true;
+        return `${c.text} ${c.translation}`.toLowerCase().includes(q);
+      })
+      .sort((a, b) => (filter === 'soon' ? (a.card?.due ?? 0) - (b.card?.due ?? 0) : b.createdAt - a.createdAt));
+  }, [chunks, query, filter, endOfDay]);
+
+  const open = openId ? data.chunks[openId] : null;
+
+  return (
+    <>
+      <div className="dict-stats">
+        <div className="c-lav">
+          <b>{chunks.length}</b>
+          <span>всего</span>
+        </div>
+        <div className="c-mint">
+          <b>{chunks.filter((c) => strength(c) >= 4).length}</b>
+          <span>крепких</span>
+        </div>
+        <div className="c-butter">
+          <b>{due}</b>
+          <span>повтор</span>
+        </div>
+        <div className="c-pink">
+          <b>{chunks.filter(isHard).length}</b>
+          <span>трудных</span>
+        </div>
+      </div>
+
+      <input className="dict-search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="⌕  Поиск по чанкам" />
+      <div className="chips tight">
+        {FILTERS.map(([id, label]) => (
+          <button key={id} className={filter === id ? 'chip on' : id === 'soon' && due ? 'chip accent c-peach' : 'chip'} onClick={() => setFilter(id)}>
+            {label}
+            {id === 'soon' && due > 0 && ` ${due}`}
+          </button>
+        ))}
+      </div>
+
+      {chunks.length === 0 ? (
+        <div className="empty">
+          <p>Чанков пока нет. В тексте нажми на слово (или выдели фразу долгим нажатием) и «🧩 Учить чанком» — приложение соберёт готовое словосочетание с примерами.</p>
+        </div>
+      ) : shown.length === 0 ? (
+        <p className="muted">Ничего не нашлось.</p>
+      ) : (
+        <ul className="dict-list">
+          {shown.map((c) => (
+            <li key={c.id}>
+              <button className="dict-row" onClick={() => setOpenId(c.id)}>
+                <span className="art-bar chunk-bar" />
+                <span className="dict-main">
+                  <span className="dict-de">{c.text}</span>
+                  <span className="dict-ru ellipsis" style={{ display: 'block' }}>
+                    {c.translation}
+                  </span>
+                </span>
+                <span className="dict-side">
+                  <Dots n={strength(c)} />
+                  {c.status === 'learning' && c.card && c.card.due <= Date.now() ? (
+                    <span className="due-label">повторить</span>
+                  ) : isHard(c) ? (
+                    <span className="due-label">трудный</span>
+                  ) : null}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {open && !open.deleted && <ChunkDetails c={open} onClose={() => setOpenId(null)} />}
+    </>
+  );
+}
+
+function ChunkDetails({ c, onClose }: { c: Chunk; onClose: () => void }) {
+  return (
+    <>
+      <button className="sheet-backdrop" aria-label="Закрыть" onClick={onClose} />
+      <div className="sheet" role="dialog" aria-label={c.text}>
+        <button className="sheet-close" onClick={onClose} aria-label="Закрыть">
+          ×
+        </button>
+        <div className="sheet-head">
+          <span className="sheet-word phrase">{c.text}</span>
+          <button className="speak" onClick={() => speak(c.text)} aria-label="Озвучить">
+            🔊
+          </button>
+        </div>
+        <p className="sheet-tr">{c.translation}</p>
+        {c.note && <p className="muted small">{c.note}</p>}
+        <ul className="chunk-examples">
+          {c.examples.map((e, i) => (
+            <li key={i}>
+              <button className="speak" onClick={() => speak(e.de)} aria-label="Озвучить пример">
+                🔊
+              </button>
+              <span>
+                <span className="de">{e.de}</span>
+                <span className="muted small">{e.ru}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+        {c.source && <p className="muted small">из текста «{c.source}»</p>}
+
+        <div className="word-stats">
+          <span>
+            Прочность <Dots n={strength(c)} />
+          </span>
+          <span>{nextReview(c)}</span>
+          {c.card && (
+            <span>
+              повторений {c.card.reps}, ошибок {c.card.lapses}
+            </span>
+          )}
+          <span>добавлено {new Date(c.createdAt).toLocaleDateString('ru-RU')}</span>
+        </div>
+
+        <div className="sheet-actions">
+          {c.status === 'learning' ? (
+            <button onClick={() => updateChunk(c.id, { status: 'known' })}>Знаю</button>
+          ) : (
+            <button onClick={() => updateChunk(c.id, { status: 'learning' })}>Учить снова</button>
+          )}
+          {c.card && (
+            <button
+              className="link"
+              onClick={() => {
+                if (confirm('Сбросить прогресс? Чанк начнётся заново как новый.')) resetChunkProgress(c.id);
+              }}
+            >
+              Сбросить прогресс
+            </button>
+          )}
+          <button
+            className="link danger"
+            onClick={() => {
+              if (confirm(`Удалить «${c.text}»?`)) {
+                removeChunks([c.id]);
+                onClose();
+              }
+            }}
+          >
+            Удалить
+          </button>
+        </div>
+      </div>
+    </>
   );
 }
 

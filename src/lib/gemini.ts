@@ -176,6 +176,65 @@ export async function translatePhrase(phrase: string, sentence: string): Promise
   return r;
 }
 
+export interface ChunkInfo {
+  text: string;
+  translation: string;
+  note: string;
+  examples: { de: string; ru: string; gap: string; wrong: string[] }[];
+}
+
+const exampleSchema = {
+  type: 'OBJECT',
+  properties: {
+    de: S('German sentence containing the chunk'),
+    ru: S('Natural Russian translation of the sentence'),
+    gap: S('The key word of the chunk exactly as it is spelled in this sentence (inflected form), copied verbatim from "de"'),
+    wrong: { type: 'ARRAY', items: S('A plausible but wrong word for the gap, same grammatical form'), description: 'Exactly 3 distinct wrong fillers' },
+  },
+  required: ['de', 'ru', 'gap', 'wrong'],
+};
+
+/** Turns a tapped word or selected phrase into a lexical chunk with practice sentences. */
+export async function makeChunk(hint: string, sentence: string, fresh = false): Promise<ChunkInfo> {
+  const key = `c|${hint}|${sentence}`;
+  if (!fresh && cache[key]) return cache[key] as ChunkInfo;
+  const r = await generate<ChunkInfo>(
+    `You help a Russian speaker learn German with the lexical approach: learning ready-made chunks (collocations, fixed phrases) instead of single words.
+` +
+      `Sentence: "${sentence}"
+The learner selected: "${hint}"
+
+` +
+      `1. Find the natural chunk of 2-5 words in the sentence that contains the selection (e.g. "einen Termin vereinbaren", "Muskelkater haben", "Ist das Gerät frei?"). ` +
+      `Give it in dictionary form: verb as infinitive at the end, separable verbs joined, keep the article with nouns. A short fixed question or expression stays as it is.
+` +
+      `2. The key word is the part of the chunk a learner is most likely to get wrong: usually the verb or preposition that goes with the noun, not the selected noun itself.
+` +
+      `3. Examples: first the original sentence (shorten it to the clause with the chunk if it is longer than 14 words), then 2 new short everyday sentences (A2-B1) using the chunk in different forms. ` +
+      `For each example give "gap" = the key word exactly as spelled there and 3 wrong fillers that do not fit this chunk.
+Answer in JSON.`,
+    {
+      type: 'OBJECT',
+      properties: {
+        text: S('The chunk in dictionary form'),
+        translation: S('Natural Russian translation of the chunk'),
+        note: S('One short Russian hint (case, preposition, register) if useful; empty string otherwise'),
+        examples: { type: 'ARRAY', items: exampleSchema, description: '3 examples, the original sentence first' },
+      },
+      required: ['text', 'translation', 'note', 'examples'],
+    },
+    { temperature: fresh ? 0.8 : 0.4 },
+  );
+  // Keep only examples whose gap really occurs in the sentence: cloze cards depend on it
+  const examples = (r.examples ?? [])
+    .map((e) => ({ ...e, gap: e.gap.trim(), wrong: [...new Set((e.wrong ?? []).map((w) => w.trim()))].filter((w) => w && w.toLowerCase() !== e.gap.trim().toLowerCase()).slice(0, 3) }))
+    .filter((e) => e.gap && e.de.includes(e.gap) && e.wrong.length === 3);
+  if (!r.text?.trim() || !examples.length) throw new GeminiError('Не получилось собрать чанк — попробуй ещё раз или выдели фразу целиком');
+  const info = { ...r, text: r.text.trim(), examples };
+  remember(key, info);
+  return info;
+}
+
 export async function translateParagraph(text: string): Promise<string> {
   const key = `para|${text}`;
   if (cache[key]) return cache[key] as string;

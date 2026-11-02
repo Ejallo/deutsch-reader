@@ -49,6 +49,27 @@ export interface Word extends Rec {
   card?: SrsCard; // absent until the word's first review
 }
 
+/** One sentence a chunk is practised in; `gap` is the exact substring hidden in cloze cards. */
+export interface ChunkExample {
+  de: string;
+  ru: string;
+  gap: string;
+  wrong: string[]; // plausible but wrong fillers for the gap
+}
+
+/** A ready-made phrase learned as a whole ("einen Termin vereinbaren"). */
+export interface Chunk extends Rec {
+  id: string; // lemmaKey(text)
+  text: string; // dictionary form
+  translation: string;
+  note: string;
+  examples: ChunkExample[]; // the first one is the sentence it was found in
+  source?: string; // title of the text it came from
+  status: WordStatus;
+  createdAt: number;
+  card?: SrsCard;
+}
+
 export interface FormLink extends Rec {
   lemmaKey: string;
 }
@@ -89,6 +110,7 @@ export interface AppData {
   version: 1;
   texts: Record<string, TextDoc>;
   words: Record<string, Word>;
+  chunks: Record<string, Chunk>;
   forms: Record<string, FormLink>;
   settings: Settings;
   progress: Progress;
@@ -101,6 +123,7 @@ export const emptyData = (): AppData => ({
   version: 1,
   texts: {},
   words: {},
+  chunks: {},
   forms: {},
   settings: { geminiKey: '', geminiModel: '', newPerDay: DEFAULT_NEW_PER_DAY, sound: true, listening: true, readerFont: 'onest', readerSize: 19, readerSpacing: 'normal', theme: 'time', updatedAt: 0 },
   progress: { day: '', newIntroduced: 0, reviewed: 0, updatedAt: 0 },
@@ -171,6 +194,7 @@ export function mergeData(a: AppData, b: AppData): AppData {
     version: 1,
     texts: mergeMap(a.texts ?? {}, b.texts ?? {}),
     words: mergeMap(a.words ?? {}, b.words ?? {}),
+    chunks: mergeMap(a.chunks ?? {}, b.chunks ?? {}),
     forms: mergeMap(a.forms ?? {}, b.forms ?? {}),
     settings: { ...base.settings, ...settings },
     progress: newer(a.progress, b.progress, base.progress),
@@ -305,6 +329,50 @@ export function saveReview(key: string, card: SrsCard, wasNew: boolean) {
   });
 }
 
+export function saveChunk(c: Omit<Chunk, 'id' | 'createdAt' | 'updatedAt' | 'card'>): string {
+  const id = lemmaKey(c.text);
+  const t = now();
+  update((d) => {
+    const prev = d.chunks[id];
+    const alive = prev && !prev.deleted;
+    return { ...d, chunks: { ...d.chunks, [id]: { ...c, id, createdAt: alive ? prev.createdAt : t, card: alive ? prev.card : undefined, updatedAt: t } } };
+  });
+  return id;
+}
+
+export function updateChunk(id: string, patch: Partial<Pick<Chunk, 'translation' | 'status'>>) {
+  update((d) => ({ ...d, chunks: { ...d.chunks, [id]: { ...d.chunks[id], ...patch, updatedAt: now() } } }));
+}
+
+export function removeChunks(ids: string[]) {
+  const t = now();
+  update((d) => {
+    const chunks = { ...d.chunks };
+    for (const id of ids) if (chunks[id]) chunks[id] = { ...chunks[id], examples: [], deleted: true, updatedAt: t };
+    return { ...d, chunks };
+  });
+}
+
+export function resetChunkProgress(id: string) {
+  update((d) => {
+    const c = { ...d.chunks[id], status: 'learning' as const, updatedAt: now() };
+    delete c.card;
+    return { ...d, chunks: { ...d.chunks, [id]: c } };
+  });
+}
+
+export function saveChunkReview(id: string, card: SrsCard, wasNew: boolean) {
+  const t = now();
+  update((d) => {
+    const p = todayProgress(d);
+    return {
+      ...d,
+      chunks: { ...d.chunks, [id]: { ...d.chunks[id], card, updatedAt: t } },
+      progress: { ...p, newIntroduced: p.newIntroduced + (wasNew ? 1 : 0), reviewed: p.reviewed + 1, updatedAt: t },
+    };
+  });
+}
+
 /** Counts a practice answer that doesn't touch the schedule. */
 export function countPractice() {
   const t = now();
@@ -401,6 +469,14 @@ export function wordForForm(d: AppData, form: string): Word | null {
 }
 
 export const statusOf = (d: AppData, form: string): FormStatus => wordForForm(d, form)?.status ?? 'new';
+
+export const liveChunks = (d: AppData) => Object.values(d.chunks ?? {}).filter((c) => !c.deleted);
+
+/** Everything in the review deck: words and chunks being learned. */
+export const learningCards = (d: AppData): { card?: SrsCard }[] => [
+  ...Object.values(d.words).filter((w) => !w.deleted && w.status === 'learning'),
+  ...liveChunks(d).filter((c) => c.status === 'learning'),
+];
 
 export const liveTexts = (d: AppData) =>
   Object.values(d.texts)

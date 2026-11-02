@@ -25,7 +25,8 @@ function fromCard(c: Card): SrsCard {
   };
 }
 
-export function review(card: SrsCard | undefined, answer: Answer, at = new Date()): SrsCard {
+/** `easy` upgrades a quick correct answer to Rating.Easy, which pushes the card much further out. */
+export function review(card: SrsCard | undefined, answer: Answer, at = new Date(), easy = false): SrsCard {
   const current = card ? toCard(card) : createEmptyCard(at);
-  return fromCard(scheduler.next(current, at, RATING[answer]).card);
+  return fromCard(scheduler.next(current, at, easy && answer === 'good' ? Rating.Easy : RATING[answer]).card);
 }

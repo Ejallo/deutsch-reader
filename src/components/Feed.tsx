@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { addXp, countPractice, DAILY_GOAL, getData, recordGoal, saveReview, todayProgress, updateSettings, useData, type Word } from '../lib/store';
+import { addXp, countPractice, DAILY_GOAL, getData, learningCards, recordGoal, saveChunkReview, saveReview, todayProgress, updateSettings, useData, type Chunk, type ChunkExample, type Word } from '../lib/store';
 import { review, type Answer } from '../lib/srs';
-import { afterAnswer, checkWritten, fullGerman, isSpecial, newSession, nextItem, shortTranslation, type FeedItem } from '../lib/feed';
+import { afterAnswer, checkChunk, checkGap, checkTiles, checkWritten, fullGerman, isSpecial, newSession, nextItem, shortTranslation, type FeedItem, type Format } from '../lib/feed';
 import { comboMultiplier, XP } from '../lib/gamify';
 import { sfx, unlockAudio } from '../lib/sfx';
 import { speak } from '../lib/tts';
@@ -19,6 +19,8 @@ const AUTO_NEXT_MS = 1100;
 const ROUND_BONUS_XP = 20;
 const LEAVE_MS = 260;
 const SWIPE_PX = 60;
+// A correct chunk answer faster than this counts as "easy" and is scheduled much further out
+const EASY_MS: Partial<Record<Format, number>> = { 'c-choose': 4000, 'c-tiles': 9000, 'c-write': 7000, 'c-ru': 9000 };
 
 export function Feed({ onClose }: Props) {
   const data = useData();
@@ -50,8 +52,12 @@ export function Feed({ onClose }: Props) {
     load();
   }, [load]);
 
-  const needsWord = !!item && !isSpecial(item.format);
+  const needsWord = !!item && !isSpecial(item.format) && !item.chunkId;
   const word: Word | undefined = item && needsWord ? data.words[item.wordId] : undefined;
+  const liveChunk = item?.chunkId ? data.chunks[item.chunkId] : undefined;
+  const chunk: Chunk | undefined = liveChunk && !liveChunk.deleted && liveChunk.examples.length ? liveChunk : undefined;
+  const example: ChunkExample | undefined = chunk ? chunk.examples[Math.min(item?.ex ?? 0, chunk.examples.length - 1)] : undefined;
+  const shownAt = useRef(0);
 
   const goNext = useCallback(() => {
     clearTimeout(autoTimer.current);
@@ -65,8 +71,10 @@ export function Feed({ onClose }: Props) {
 
   // Speak when a card appears where hearing the word is the point
   useEffect(() => {
-    if (needsWord && !word) load(); // word was removed on another screen or device
+    shownAt.current = Date.now();
+    if ((needsWord && !word) || (item?.chunkId && !chunk)) load(); // removed on another screen or device
     else if (word && item && getData().settings.listening && (item.format === 'intro' || item.format === 'listen')) speak(fullGerman(word));
+    else if (chunk && item?.format === 'c-intro' && getData().settings.listening) speak(chunk.text);
   }, [item?.key]);
 
   /** The answer that completes today's goal extends the streak and queues a celebration. */
@@ -85,13 +93,22 @@ export function Feed({ onClose }: Props) {
   };
 
   const submit = (answer: Answer, extra: Omit<Result, 'answer'> = {}) => {
-    if (!item || !word || result) return;
-    const w = getData().words[item.wordId];
-    if (item.graded) saveReview(w.id, review(w.card, answer), !w.card);
-    else countPractice();
+    if (!item || (!word && !chunk) || result) return;
+    let say: string;
+    if (chunk && example) {
+      const c = getData().chunks[chunk.id];
+      const fast = Date.now() - shownAt.current < (EASY_MS[item.format] ?? 0);
+      if (item.graded) saveChunkReview(c.id, review(c.card, answer, new Date(), fast), !c.card);
+      else countPractice();
+      say = item.format === 'c-ru' ? c.text : example.de;
+    } else {
+      const w = getData().words[item.wordId];
+      if (item.graded) saveReview(w.id, review(w.card, answer), !w.card);
+      else countPractice();
+      say = fullGerman(w);
+    }
     countTowardGoal();
-    const learning = Object.values(getData().words).filter((x) => !x.deleted && x.status === 'learning').length;
-    afterAnswer(session.current, item, answer !== 'again', learning);
+    afterAnswer(session.current, item, answer !== 'again', learningCards(getData()).length);
 
     // "Almost" keeps the combo alive but doesn't grow it
     const nextCombo = answer === 'good' ? session.current.combo + 1 : answer === 'hard' ? session.current.combo : 0;
@@ -109,7 +126,7 @@ export function Feed({ onClose }: Props) {
     else sfx.wrong();
 
     setResult({ answer, xp, ...extra });
-    if (getData().settings.listening) setTimeout(() => speak(fullGerman(w)), 250);
+    if (getData().settings.listening) setTimeout(() => speak(say), 250);
     if (answer === 'good') autoTimer.current = setTimeout(goNext, AUTO_NEXT_MS);
   };
 
@@ -134,12 +151,12 @@ export function Feed({ onClose }: Props) {
     setSpecialDone(true);
   };
 
-  const canAdvance = !!item && (item.format === 'intro' || !!result || specialDone);
+  const canAdvance = !!item && (item.format === 'intro' || item.format === 'c-intro' || !!result || specialDone);
 
   // Swipe up / wheel / keys move to the next card once this one is done
   const tryAdvance = () => {
     if (!canAdvance || leaving) return;
-    if (item?.format === 'intro') finishIntro();
+    if (item?.format === 'intro' || item?.format === 'c-intro') finishIntro();
     else goNext();
   };
 
@@ -169,6 +186,21 @@ export function Feed({ onClose }: Props) {
         return <MilestoneCard n={item.milestone ?? 0} onShown={() => setSpecialDone(true)} onNext={goNext} />;
       case 'goal':
         return null;
+    }
+    if (chunk && example) {
+      switch (item.format) {
+        case 'c-intro':
+          return <ChunkIntroCard c={chunk} e={example} onDone={finishIntro} />;
+        case 'c-choose':
+          return <ChunkChooseCard e={example} item={item} result={result} onPick={pick} />;
+        case 'c-tiles':
+          return <ChunkTilesCard e={example} tiles={item.tiles ?? []} result={result} onCheck={(order) => submit(checkTiles(example, order), { typed: order.join(' ') })} />;
+        case 'c-write':
+          return <ChunkWriteCard e={example} result={result} onCheck={(typed) => submit(checkGap(example, typed), { typed })} />;
+        case 'c-ru':
+          return <ChunkRuCard c={chunk} result={result} onCheck={(typed) => submit(checkChunk(chunk, typed), { typed })} />;
+      }
+      return null;
     }
     if (!word) return null;
     switch (item.format) {
@@ -232,7 +264,7 @@ export function Feed({ onClose }: Props) {
 
       <div className="feed-stage">
         {empty && <EmptyCard reason={empty} limit={data.settings.newPerDay} onClose={onClose} />}
-        {item && (word || !needsWord) && item.format !== 'goal' && (
+        {item && (word || chunk || isSpecial(item.format)) && item.format !== 'goal' && (
           <div key={item.key} className={`feed-card ${leaving ? 'leaving' : 'entering'} ${result ? `res-${result.answer}` : ''} fmt-${item.format}`}>
             {((result?.answer === 'good' && combo > 0 && combo % 3 === 0) || roundDone > 0) && <Confetti />}
             {renderCard()}
@@ -241,7 +273,16 @@ export function Feed({ onClose }: Props) {
         )}
       </div>
 
-      {result && word && <ResultSheet result={result} w={word} combo={combo} round={roundDone} onNext={goNext} />}
+      {result && (word || (chunk && example)) && (
+        <ResultSheet
+          result={result}
+          solution={word ? fullGerman(word) : item?.format === 'c-ru' ? chunk!.text : example!.de}
+          meaning={word ? shortTranslation(word) : item?.format === 'c-ru' ? chunk!.translation : example!.ru}
+          combo={combo}
+          round={roundDone}
+          onNext={goNext}
+        />
+      )}
 
       {item?.format === 'goal' && !showChest && (
         <LessonSummary
@@ -267,7 +308,7 @@ export function Feed({ onClose }: Props) {
 }
 
 /** Mint «Richtig!» or soft pink «Почти!» sheet under the card. */
-function ResultSheet({ result, w, combo, round, onNext }: { result: Result; w: Word; combo: number; round: number; onNext: () => void }) {
+function ResultSheet({ result, solution, meaning, combo, round, onNext }: { result: Result; solution: string; meaning: string; combo: number; round: number; onNext: () => void }) {
   const mult = comboMultiplier(combo);
   const roundLine = round > 0 ? `Раунд ${round} пройден! +${ROUND_BONUS_XP} XP` : '';
   if (result.answer === 'good') {
@@ -293,7 +334,7 @@ function ResultSheet({ result, w, combo, round, onNext }: { result: Result; w: W
     <div className={`result-sheet ${result.answer === 'hard' ? 'c-butter' : 'c-pink'}`}>
       <div className="ttl">Почти! 💪</div>
       <div className="sub">
-        Правильно: <b>{fullGerman(w)}</b> — {shortTranslation(w)}.{result.answer === 'again' ? ' Слово вернётся через пару карточек.' : ''}
+        Правильно: <b>{solution}</b> — {meaning}{/[.!?…]$/.test(meaning) ? '' : '.'}{result.answer === 'again' ? ' Карточка вернётся через пару карточек.' : ''}
       </div>
       {roundLine && <div className="sub" style={{ fontWeight: 800, opacity: 1 }}>{roundLine}</div>}
       <button className="chunky c-card" onClick={onNext}>
@@ -400,18 +441,6 @@ function ArticleCard({ w, item, result, onPick, combo }: { w: Word; item: FeedIt
 const UMLAUTS = ['ä', 'ö', 'ü', 'ß'];
 
 function WriteCard({ w, result, onCheck }: { w: Word; result: Result | null; onCheck: (typed: string) => void }) {
-  const [value, setValue] = useState('');
-  const [error, setError] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const check = () => {
-    if (!value.trim()) {
-      setError('Сначала напиши слово');
-      return;
-    }
-    onCheck(value);
-  };
-
   return (
     <>
       <span className="feed-label">Напиши по-немецки{w.article ? ' с артиклем' : ''}</span>
@@ -420,6 +449,27 @@ function WriteCard({ w, result, onCheck }: { w: Word; result: Result | null; onC
           {shortTranslation(w)}
         </div>
       </div>
+      <TypeAnswer result={result} onCheck={onCheck} placeholder={w.article ? 'der / die / das …' : '…'} />
+    </>
+  );
+}
+
+/** Text field with umlaut buttons and a check button. */
+function TypeAnswer({ result, onCheck, placeholder }: { result: Result | null; onCheck: (typed: string) => void; placeholder: string }) {
+  const [value, setValue] = useState('');
+  const [error, setError] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const check = () => {
+    if (!value.trim()) {
+      setError('Сначала напиши ответ');
+      return;
+    }
+    onCheck(value);
+  };
+
+  return (
+    <>
       <input
         ref={inputRef}
         className={`write-input ${result ? `res-${result.answer}` : ''}`}
@@ -430,7 +480,7 @@ function WriteCard({ w, result, onCheck }: { w: Word; result: Result | null; onC
           setError('');
         }}
         onKeyDown={(e) => e.key === 'Enter' && check()}
-        placeholder={w.article ? 'der / die / das …' : '…'}
+        placeholder={placeholder}
         autoCapitalize="off"
         autoCorrect="off"
         autoComplete="off"
@@ -462,6 +512,124 @@ function WriteCard({ w, result, onCheck }: { w: Word; result: Result | null; onC
   );
 }
 
+/** Example sentence with the chunk's key word hidden (or shown once answered). */
+function Cloze({ e, reveal }: { e: ChunkExample; reveal: boolean }) {
+  const i = e.de.indexOf(e.gap);
+  const after = e.de.slice(i + e.gap.length);
+  const glued = after.match(/^\S*/)![0]; // punctuation right after the gap stays on its line
+  return (
+    <p className="cloze">
+      {e.de.slice(0, i)}
+      <span className="nowrap">
+        <span className={`gap ${reveal ? 'on' : ''}`}>{reveal ? e.gap : '\u00a0'.repeat(Math.max(4, e.gap.length))}</span>
+        {glued}
+      </span>
+      {after.slice(glued.length)}
+    </p>
+  );
+}
+
+function ChunkIntroCard({ c, e, onDone }: { c: Chunk; e: ChunkExample; onDone: () => void }) {
+  return (
+    <>
+      <span className="feed-label">Новый чанк</span>
+      <div className="lesson-card">
+        <Speaker text={c.text} />
+        <div className="feed-word chunk-text">{c.text}</div>
+        <p className="feed-tr">{c.translation}</p>
+        {c.note && <p className="small muted" style={{ margin: 0 }}>{c.note}</p>}
+        <p className="feed-example">„{e.de}“</p>
+        <p className="small muted" style={{ margin: 0 }}>{e.ru}</p>
+      </div>
+      <button className="chunky c-peach feed-cta" onClick={onDone}>
+        Запомнил ↑
+      </button>
+    </>
+  );
+}
+
+function ChunkChooseCard({ e, item, result, onPick }: { e: ChunkExample; item: FeedItem; result: Result | null; onPick: (i: number) => void }) {
+  return (
+    <>
+      <span className="feed-label">Вставь пропуск</span>
+      <div className="lesson-card">
+        <Speaker text={e.de} />
+        <Cloze e={e} reveal={!!result} />
+        <p className="small muted" style={{ margin: 0 }}>{e.ru}</p>
+      </div>
+      <Options item={item} result={result} onPick={onPick} />
+    </>
+  );
+}
+
+function ChunkWriteCard({ e, result, onCheck }: { e: ChunkExample; result: Result | null; onCheck: (typed: string) => void }) {
+  return (
+    <>
+      <span className="feed-label">Впиши пропущенное слово</span>
+      <div className="lesson-card">
+        <Cloze e={e} reveal={!!result} />
+        <p className="small muted" style={{ margin: 0 }}>{e.ru}</p>
+      </div>
+      <TypeAnswer result={result} onCheck={onCheck} placeholder="…" />
+    </>
+  );
+}
+
+function ChunkRuCard({ c, result, onCheck }: { c: Chunk; result: Result | null; onCheck: (typed: string) => void }) {
+  const n = c.text.split(/\s+/).length;
+  return (
+    <>
+      <span className="feed-label">Скажи это по-немецки</span>
+      <div className="lesson-card">
+        <div className="feed-word" style={{ fontSize: 24 }}>
+          {c.translation}
+        </div>
+        <p className="small muted" style={{ margin: 0 }}>
+          {result ? c.text : `чанк из ${n} ${n === 1 ? 'слова' : 'слов'}`}
+        </p>
+      </div>
+      <TypeAnswer result={result} onCheck={onCheck} placeholder="…" />
+    </>
+  );
+}
+
+/** Put the shuffled words of the sentence back in order; tap a placed word to take it back. */
+function ChunkTilesCard({ e, tiles, result, onCheck }: { e: ChunkExample; tiles: string[]; result: Result | null; onCheck: (order: string[]) => void }) {
+  const [placed, setPlaced] = useState<number[]>([]);
+  const left = tiles.map((_, i) => i).filter((i) => !placed.includes(i));
+  return (
+    <>
+      <span className="feed-label">Собери предложение</span>
+      <div className="lesson-card">
+        <p className="feed-tr" style={{ fontSize: 18, textAlign: 'center' }}>
+          {e.ru}
+        </p>
+        <div className={`tile-line ${result ? `res-${result.answer}` : ''}`}>
+          {placed.map((i) => (
+            <button key={i} className="tile" disabled={!!result} onClick={() => setPlaced((p) => p.filter((x) => x !== i))}>
+              {tiles[i]}
+            </button>
+          ))}
+        </div>
+      </div>
+      {!result && (
+        <>
+          <div className="tile-pool">
+            {left.map((i) => (
+              <button key={i} className="tile" onClick={() => setPlaced((p) => [...p, i])}>
+                {tiles[i]}
+              </button>
+            ))}
+          </div>
+          <button className="chunky c-peach feed-cta" disabled={left.length > 0} onClick={() => onCheck(placed.map((i) => tiles[i]))}>
+            Проверить
+          </button>
+        </>
+      )}
+    </>
+  );
+}
+
 function EmptyCard({ reason, limit, onClose }: { reason: 'empty' | 'limit'; limit: number; onClose: () => void }) {
   return (
     <div className="feed-card entering">
@@ -469,11 +637,11 @@ function EmptyCard({ reason, limit, onClose }: { reason: 'empty' | 'limit'; limi
       {reason === 'empty' ? (
         <>
           <p className="feed-tr">Пока нечего учить</p>
-          <p className="muted">Открой текст, нажми на незнакомое слово и «Учить» — оно появится здесь.</p>
+          <p className="muted">Открой текст, нажми на незнакомое слово и «+ В словарь» или «Учить чанком» — оно появится здесь.</p>
         </>
       ) : (
         <>
-          <p className="feed-tr">На сегодня новые слова закончились</p>
+          <p className="feed-tr">На сегодня новые карточки закончились</p>
           <p className="muted">Лимит — {limit} новых в день. Завтра будут ещё.</p>
         </>
       )}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { translateParagraph, type PhraseInfo, type WordInfo } from '../lib/gemini';
-import { addXp, lemmaKey, removeWord, saveWord, useData, wordForForm, type WordStatus } from '../lib/store';
+import { makeChunk, translateParagraph, type ChunkInfo, type PhraseInfo, type WordInfo } from '../lib/gemini';
+import { addXp, lemmaKey, removeWord, saveChunk, saveWord, useData, wordForForm, type WordStatus } from '../lib/store';
 import { articleClass } from './ui';
 import { speak } from '../lib/tts';
 
@@ -10,17 +10,19 @@ export type SheetState =
 
 interface Props {
   state: SheetState;
+  source?: string; // title of the text, remembered on saved chunks
   onClose: () => void;
   onRetry: () => void;
 }
 
-export function WordSheet({ state, onClose, onRetry }: Props) {
+export function WordSheet({ state, source, onClose, onRetry }: Props) {
   return (
     <div className="sheet" role="dialog" aria-label="Перевод">
       <button className="sheet-close" onClick={onClose} aria-label="Закрыть">
         ×
       </button>
       {state.kind === 'word' ? <WordBody state={state} /> : <PhraseBody state={state} />}
+      {state.info && <ChunkMaker key={state.kind === 'word' ? state.word : state.phrase} hint={state.kind === 'word' ? state.word : state.phrase} sentence={state.sentence} source={source} />}
       <SentenceTools sentence={state.sentence} />
       {state.error && (
         <div>
@@ -121,24 +123,6 @@ function WordBody({ state }: { state: Extract<SheetState, { kind: 'word' }> }) {
 }
 
 function PhraseBody({ state }: { state: Extract<SheetState, { kind: 'phrase' }> }) {
-  const data = useData();
-  const key = lemmaKey(state.phrase);
-  const savedPhrase = data.words[key] && !data.words[key].deleted;
-  const addPhrase = () => {
-    if (!state.info) return;
-    addXp(5);
-    saveWord(key, {
-      lemma: state.phrase,
-      article: '',
-      plural: '',
-      pos: 'фраза',
-      translation: state.info.translation,
-      meanings: '',
-      note: state.info.note,
-      example: state.sentence,
-      status: 'learning',
-    });
-  };
   return (
     <>
       <div className="sheet-head">
@@ -151,20 +135,85 @@ function PhraseBody({ state }: { state: Extract<SheetState, { kind: 'phrase' }> 
         <>
           <p className="sheet-tr">{state.info.translation}</p>
           {state.info.note && <p className="muted small">{state.info.note}</p>}
-          <div className="sheet-actions">
-            {savedPhrase ? (
-              <span className="tag tag-learning">В словаре</span>
-            ) : (
-              <button className="chunky c-peach" onClick={addPhrase}>
-                + В словарь <span className="xp">+5 XP</span>
-              </button>
-            )}
-          </div>
         </>
       ) : (
         !state.error && <p className="muted">Перевожу…</p>
       )}
     </>
+  );
+}
+
+/** Builds a chunk around the selection with Gemini, shows a preview, saves it to the deck. */
+function ChunkMaker({ hint, sentence, source }: { hint: string; sentence: string; source?: string }) {
+  const data = useData();
+  const [st, setSt] = useState<{ loading?: boolean; info?: ChunkInfo; error?: string; saved?: string }>({});
+
+  const build = async (fresh = false) => {
+    setSt({ loading: true });
+    try {
+      setSt({ info: await makeChunk(hint, sentence, fresh) });
+    } catch (e) {
+      setSt({ error: (e as Error).message });
+    }
+  };
+
+  const save = () => {
+    if (!st.info) return;
+    addXp(5);
+    const { text, translation, note, examples } = st.info;
+    setSt({ ...st, saved: saveChunk({ text, translation, note, examples, source, status: 'learning' }) });
+  };
+
+  const existing = st.info ? data.chunks[lemmaKey(st.info.text)] : undefined;
+  const inDeck = !!st.saved || (!!existing && !existing.deleted);
+
+  if (!st.info) {
+    return (
+      <div className="chunk-maker">
+        <button className="chunky c-lav" onClick={() => void build()} disabled={st.loading}>
+          {st.loading ? 'Собираю чанк…' : '🧩 Учить чанком'}
+        </button>
+        {st.error && <p className="error small">{st.error}</p>}
+      </div>
+    );
+  }
+
+  const first = st.info.examples[0];
+  const i = first.de.indexOf(first.gap);
+  return (
+    <div className="chunk-maker chunk-preview">
+      <span className="chunk-label">Чанк</span>
+      <div className="sheet-head">
+        <span className="sheet-word phrase">{st.info.text}</span>
+        <button className="speak" onClick={() => speak(st.info!.text)} aria-label="Озвучить">
+          🔊
+        </button>
+      </div>
+      <p className="sheet-tr">{st.info.translation}</p>
+      {st.info.note && <p className="muted small" style={{ margin: 0 }}>{st.info.note}</p>}
+      <p className="feed-example">
+        „{first.de.slice(0, i)}
+        <b>{first.gap}</b>
+        {first.de.slice(i + first.gap.length)}“
+      </p>
+      <p className="muted small" style={{ margin: 0 }}>
+        + ещё {st.info.examples.length - 1} {st.info.examples.length - 1 === 1 ? 'пример' : 'примера'} для тренировки
+      </p>
+      <div className="sheet-actions">
+        {inDeck ? (
+          <span className="tag tag-learning">Чанк в колоде</span>
+        ) : (
+          <>
+            <button className="chunky c-peach" onClick={save}>
+              + В колоду <span className="xp">+5 XP</span>
+            </button>
+            <button className="link" onClick={() => void build(true)}>
+              Другой вариант
+            </button>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 

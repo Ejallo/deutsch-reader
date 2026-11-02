@@ -1,4 +1,4 @@
-import { todayProgress, useData, type AppData } from '../lib/store';
+import { learningCards, todayProgress, useData, type AppData } from '../lib/store';
 
 export type Tab = 'home' | 'library' | 'words' | 'settings';
 
@@ -8,10 +8,10 @@ interface Props {
   onLearn: () => void;
 }
 
-/** Cards waiting today: reviews due now plus new words still allowed today. */
+/** Cards waiting today: reviews due now plus new words and chunks still allowed today. */
 export function waitingCards(d: AppData): number {
   const now = Date.now();
-  const learning = Object.values(d.words).filter((w) => !w.deleted && w.status === 'learning');
+  const learning = learningCards(d);
   const due = learning.filter((w) => w.card && w.card.due <= now).length;
   const newLeft = Math.max(0, d.settings.newPerDay - todayProgress(d).newIntroduced);
   return due + Math.min(newLeft, learning.filter((w) => !w.card).length);

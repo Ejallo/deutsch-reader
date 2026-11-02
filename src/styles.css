@@ -2213,3 +2213,138 @@ button.link.danger {
 .select-bar .chunky {
   min-height: 44px;
 }
+
+/* Chunks */
+.segment {
+  display: flex;
+  background: var(--card2);
+  border-radius: 16px;
+  padding: 4px;
+  gap: 4px;
+  margin: 4px 0 12px;
+}
+.segment button {
+  flex: 1;
+  height: 38px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  font-weight: 700;
+  color: var(--sub);
+}
+.segment button.on {
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: 0 2px 0 var(--line);
+}
+.chunk-bar {
+  background: var(--lav);
+}
+.chunk-maker {
+  margin-top: 12px;
+}
+.chunk-maker > .chunky {
+  width: 100%;
+}
+.chunk-preview {
+  border: 2px dashed var(--lav);
+  border-radius: 20px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.chunk-label {
+  align-self: flex-start;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--sub);
+}
+.chunk-examples {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.chunk-examples li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.chunk-examples li > span {
+  display: flex;
+  flex-direction: column;
+}
+.chunk-examples .de {
+  font-family: var(--body);
+  font-size: 16px;
+}
+.feed-word.chunk-text {
+  font-size: 26px;
+  text-align: center;
+}
+.cloze {
+  font: 500 21px/1.5 var(--body);
+  text-align: center;
+  margin: 4px 0;
+}
+.cloze .gap {
+  display: inline-block;
+  min-width: 3em;
+  border-bottom: 3px dashed var(--sub);
+  padding: 0 4px;
+}
+.cloze .gap.on {
+  border-bottom-style: solid;
+  border-color: var(--mint);
+  background: color-mix(in oklch, var(--mint) 45%, transparent);
+  border-radius: 6px 6px 0 0;
+  font-weight: 700;
+}
+.tile-line {
+  width: 100%;
+  min-height: 56px;
+  border-bottom: 2px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 0;
+  justify-content: center;
+}
+.tile-line.res-good {
+  border-color: var(--mint);
+}
+.tile-line.res-again {
+  border-color: var(--pink);
+}
+.tile-pool {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin: 8px 0 4px;
+}
+.tile {
+  height: 44px;
+  padding: 0 14px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: 0 3px 0 var(--line);
+  font: 600 17px var(--body);
+  color: var(--ink);
+}
+.tile:active:not(:disabled) {
+  transform: translateY(3px);
+  box-shadow: none;
+}
+.tile:disabled {
+  opacity: 1;
+}
+.cloze .nowrap {
+  white-space: nowrap;
+}

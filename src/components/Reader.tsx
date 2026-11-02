@@ -340,6 +340,7 @@ export function Reader({ id, onBack }: Props) {
       {sheet && (
         <WordSheet
           state={sheet}
+          source={doc?.title}
           onClose={closeSheet}
           onRetry={() => {
             if (!sel) return;
