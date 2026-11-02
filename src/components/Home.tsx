@@ -39,7 +39,7 @@ export function Home({ onTab, onLearn, onOpenText, onChest, onAddKey }: Props) {
   const p = todayProgress(data);
   const waiting = waitingCards(data, 'all');
   const waitingChunks = waitingCards(data, 'chunks');
-  const hasChunks = liveChunks(data).some((c) => c.status === 'learning');
+  const chunkCount = liveChunks(data).filter((c) => c.status === 'learning').length;
   const learnIn = (mode: LearnMode) => {
     updateSettings({ learnMode: mode });
     onLearn();
@@ -137,16 +137,28 @@ export function Home({ onTab, onLearn, onOpenText, onChest, onAddKey }: Props) {
             </span>
           </div>
           <PBar value={p.reviewed / DAILY_GOAL} h={12} onFill />
-          <div className="goal-actions">
-            <button className="chunky c-card" onClick={() => learnIn('all')}>
-              {waiting > 0 ? `▶ Учить ${waiting}${hasChunks ? '' : ` · ~${Math.max(1, Math.round(waiting / 5))} мин`}` : '▶ Повторить'}
-            </button>
-            {hasChunks && (
-              <button className="chunky c-lav chunks-btn" onClick={() => learnIn('chunks')}>
-                🧩 Чанки{waitingChunks > 0 ? ` ${waitingChunks}` : ''}
-              </button>
-            )}
+          <button className="chunky c-card" onClick={() => learnIn('all')}>
+            {waiting > 0 ? `▶ Учить ${waiting} · ~${Math.max(1, Math.round(waiting / 5))} мин` : '▶ Повторить'}
+          </button>
+        </div>
+
+        <div className="tile goal c-lav">
+          <div className="goal-head">
+            <b>🧩 Чанки</b>
+            <span style={{ fontWeight: 700, fontSize: 14 }}>{chunkCount ? `${chunkCount} в колоде` : 'фразы целиком'}</span>
           </div>
+          {chunkCount ? (
+            <button className="chunky c-card" onClick={() => learnIn('chunks')}>
+              {waitingChunks > 0 ? `▶ Учить чанки · ${waitingChunks}` : '▶ Повторить чанки'}
+            </button>
+          ) : (
+            <>
+              <p className="small" style={{ margin: 0 }}>Нажми на слово в тексте → «🧩 Учить чанком» или добавь в Словаре.</p>
+              <button className="chunky c-card" onClick={() => onTab('words')}>
+                + Добавить чанк
+              </button>
+            </>
+          )}
         </div>
       </div>
 
