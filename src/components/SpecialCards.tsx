@@ -24,7 +24,7 @@ export function Confetti() {
     const ctx = c.getContext('2d')!;
     const w = (c.width = c.offsetWidth * devicePixelRatio);
     const h = (c.height = c.offsetHeight * devicePixelRatio);
-    const colors = ['#3b7de0', '#d9455f', '#2f9e64', '#f2c230', '#9b5de5'];
+    const colors = ['#1a1a1a', '#c8102e', '#c9a227', '#f2d26b', '#e8dcc0'];
     const parts = Array.from({ length: 90 }, () => ({
       x: w / 2,
       y: h * 0.35,

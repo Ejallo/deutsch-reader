@@ -1,34 +1,53 @@
 :root {
-  --bg: #faf9f6;
-  --surface: #ffffff;
-  --text: #1f1f1d;
-  --muted: #6b6a65;
-  --border: rgba(0, 0, 0, 0.1);
-  --accent: #2563c9;
-  --on-accent: #ffffff;
-  --danger: #b42318;
-  --new-bg: rgba(37, 99, 201, 0.12);
-  --learning-bg: rgba(230, 160, 20, 0.28);
-  --sel-bg: rgba(37, 99, 201, 0.35);
-  --good: #2f9e64;
-  --warn: #d48a0c;
+  /* C1 "classic paper": warm paper, ink black, gold; red only for combo and mistakes */
+  --bg: #faf6ee;
+  --surface: #fffdf8;
+  --text: #1a1a1a;
+  --muted: #8a7650;
+  --border: #e8dcc0;
+  --border-strong: #d6c49c;
+  --accent: #1a1a1a;
+  --on-accent: #f2d26b;
+  --gold: #c9a227;
+  --danger: #c8102e;
+  --good: #8a6d12;
+  --ok-bg: #1a1a1a;
+  --ok-fg: #f2d26b;
+  --warn: #b7791f;
+  --new-bg: rgba(201, 162, 39, 0.2);
+  --learning-bg: rgba(200, 16, 46, 0.14);
+  --sel-bg: rgba(26, 26, 26, 0.18);
+  --der: #2f5d9e;
+  --die: #b3263a;
+  --das: #3f7d4e;
+  --serif: ui-serif, 'New York', Georgia, 'Times New Roman', serif;
   --radius: 12px;
   color-scheme: light dark;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1a1a18;
-    --surface: #242422;
-    --text: #ecebe6;
-    --muted: #a3a29c;
-    --border: rgba(255, 255, 255, 0.12);
-    --accent: #6b9ff0;
-    --on-accent: #0d1b30;
-    --danger: #f08a7e;
-    --new-bg: rgba(107, 159, 240, 0.18);
-    --learning-bg: rgba(240, 180, 60, 0.28);
-    --sel-bg: rgba(107, 159, 240, 0.45);
+    /* C2 "night paper": warm graphite, cream text, gold */
+    --bg: #1b1916;
+    --surface: #24211c;
+    --text: #f3ead7;
+    --muted: #a8987a;
+    --border: #3d382f;
+    --border-strong: #554d40;
+    --accent: #e0b84a;
+    --on-accent: #1b1916;
+    --gold: #e0b84a;
+    --danger: #e0453a;
+    --good: #e0b84a;
+    --ok-bg: #e0b84a;
+    --ok-fg: #1b1916;
+    --warn: #e09a4a;
+    --new-bg: rgba(224, 184, 74, 0.18);
+    --learning-bg: rgba(224, 69, 58, 0.22);
+    --sel-bg: rgba(243, 234, 215, 0.22);
+    --der: #7aa5e6;
+    --die: #ee7d8c;
+    --das: #86c79a;
   }
 }
 
@@ -237,10 +256,10 @@ h2 {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #3a9d5d;
+  background: var(--gold);
 }
 .sync-syncing span {
-  background: #e0a020;
+  background: var(--muted);
   animation: pulse 1s infinite alternate;
 }
 .sync-error span {
@@ -631,9 +650,9 @@ h2 {
   opacity: 1;
 }
 .option.ok {
-  background: var(--good);
-  border-color: var(--good);
-  color: #fff;
+  background: var(--ok-bg);
+  border-color: var(--ok-bg);
+  color: var(--ok-fg);
 }
 .option.bad {
   background: var(--danger);
@@ -644,16 +663,16 @@ h2 {
   opacity: 0.4;
 }
 .option.art-der:not(.ok):not(.bad):not(.dim) {
-  border-color: #3b7de0;
-  color: #3b7de0;
+  border-color: var(--der);
+  color: var(--der);
 }
 .option.art-die:not(.ok):not(.bad):not(.dim) {
-  border-color: #d9455f;
-  color: #d9455f;
+  border-color: var(--die);
+  color: var(--die);
 }
 .option.art-das:not(.ok):not(.bad):not(.dim) {
-  border-color: #2f9e64;
-  color: #2f9e64;
+  border-color: var(--das);
+  color: var(--das);
 }
 .option[class*='art-'] {
   font-size: 22px;
@@ -760,7 +779,7 @@ h2 {
   font-size: 14px;
   font-weight: 800;
   color: #fff;
-  background: var(--warn);
+  background: var(--danger);
   border-radius: 999px;
   padding: 3px 9px;
   animation: pop 0.35s ease;
@@ -886,4 +905,183 @@ h2 {
   flex: 0 0 auto;
   font-size: 20px;
   padding: 10px 14px;
+}
+
+/* ===== C1/C2 "German minimalism" theme layer ===== */
+body {
+  background: var(--bg);
+}
+h1,
+.list-title,
+.reader-title,
+.reader,
+.feed-word,
+.sheet-word,
+.feed-example,
+.para-tr,
+.chest-reward,
+.blitz-word,
+.sentence-input,
+.write-input {
+  font-family: var(--serif);
+}
+h1 {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.feed-word,
+.sheet-word {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.feed-label,
+.field > span {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 12px;
+  color: var(--muted);
+}
+button {
+  border-color: var(--border);
+}
+button.primary,
+.tab.learn,
+.fab {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+input,
+textarea,
+select {
+  border-color: var(--border);
+}
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px var(--new-bg);
+}
+button.link {
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: var(--gold);
+  text-underline-offset: 4px;
+}
+.card,
+.list-item,
+.feed-card,
+.sheet {
+  background: var(--surface);
+  border-color: var(--border);
+}
+.list-item {
+  border-radius: 16px;
+  padding: 16px 18px;
+}
+.list-title {
+  font-size: 18px;
+}
+.progress,
+.level-bar,
+.feed-goal-bar,
+.blitz-timer {
+  background: var(--border);
+}
+.progress i,
+.level-bar i,
+.feed-goal-bar i {
+  background: var(--gold);
+}
+.blitz-timer i {
+  background: var(--danger);
+}
+/* thin tricolor rule above the main screens */
+.screen::before,
+.feed::before {
+  content: '';
+  display: block;
+  height: 3px;
+  background: linear-gradient(90deg, var(--text) 0 33.3%, var(--danger) 33.3% 66.6%, var(--gold) 66.6%);
+}
+.screen::before {
+  margin: 0 -16px 10px;
+}
+.screen:has(.bar.sticky)::before {
+  display: none;
+}
+.feed-card {
+  border-radius: 22px;
+}
+.feed-card.res-good {
+  border-color: var(--gold);
+}
+.feed-due,
+.feed-chip {
+  border-color: var(--border);
+}
+.option {
+  background: var(--surface);
+  border-color: var(--border-strong);
+}
+.speaker {
+  border-color: var(--border-strong);
+}
+.tabbar {
+  background: var(--surface);
+  border-top-color: var(--border);
+}
+.tab.active {
+  color: var(--text);
+  font-family: var(--serif);
+}
+.badge {
+  background: var(--on-accent);
+  color: var(--accent);
+}
+.sheet {
+  border-top: 1px solid var(--border-strong);
+}
+.w-new {
+  background: var(--new-bg);
+}
+.w-learning {
+  background: var(--learning-bg);
+}
+.para-tr {
+  border-left-color: var(--gold);
+}
+.tag-known {
+  background: var(--new-bg);
+}
+.xp-float,
+.verdict.good,
+.goal-done {
+  color: var(--good);
+}
+.write-input.res-good {
+  border-color: var(--gold);
+}
+.stats-row {
+  font-family: var(--serif);
+}
+.tab.active {
+  flex: 0 0 auto;
+  padding: 12px 6px;
+}
+.tab.learn {
+  flex: 1;
+  white-space: nowrap;
+}
+.tab.listen-toggle {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+}
+button.link.danger {
+  color: var(--danger);
+  text-decoration-color: var(--danger);
 }
