@@ -9,12 +9,14 @@ import { Feed } from './components/Feed';
 import { Dictionary } from './components/Dictionary';
 import type { Tab } from './components/TabBar';
 import { useSync } from './lib/sync';
+import { useApplyTheme } from './lib/theme';
 
 export type View = { name: 'library' } | { name: 'add' } | { name: 'reader'; id: string } | { name: 'settings' } | { name: 'feed' } | { name: 'words' };
 
 export function App() {
   const [view, setView] = useState<View>({ name: 'library' });
   const sync = useSync();
+  useApplyTheme();
   // Setup is shown until the device is connected or the user chose local-only mode
   const [setupDone, setSetupDone] = useState<boolean | null>(null);
 

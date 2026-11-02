@@ -1,6 +1,7 @@
 import { get, set } from 'idb-keyval';
 import { useSyncExternalStore } from 'react';
 import type { ReaderFont } from './fonts';
+import type { Theme } from './theme';
 
 // Every synced record carries updatedAt; merges keep the newest version.
 // Deletions are tombstones (deleted: true) so they propagate between devices.
@@ -61,6 +62,7 @@ export interface Settings extends Rec {
   readerFont: ReaderFont;
   readerSize: number;
   readerSpacing: 'normal' | 'loose';
+  theme: Theme;
 }
 
 export interface Stats extends Rec {
@@ -96,7 +98,7 @@ export const emptyData = (): AppData => ({
   texts: {},
   words: {},
   forms: {},
-  settings: { geminiKey: '', geminiModel: '', newPerDay: DEFAULT_NEW_PER_DAY, sound: true, listening: true, readerFont: 'serif', readerSize: 19, readerSpacing: 'normal', updatedAt: 0 },
+  settings: { geminiKey: '', geminiModel: '', newPerDay: DEFAULT_NEW_PER_DAY, sound: true, listening: true, readerFont: 'serif', readerSize: 19, readerSpacing: 'normal', theme: 'auto', updatedAt: 0 },
   progress: { day: '', newIntroduced: 0, reviewed: 0, updatedAt: 0 },
   stats: { xp: 0, streak: 0, lastGoalDay: '', freezeUsedDay: '', milestones: [], updatedAt: 0 },
 });

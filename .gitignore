@@ -2,3 +2,5 @@ node_modules
 dist
 dev-dist
 *.local
+push-worker/.vapid.json
+push-worker/.wrangler

@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { currentStreak, liveTexts, statusOf, useData } from '../lib/store';
 import { levelOf } from '../lib/gamify';
+import { effectiveTheme, toggleTheme } from '../lib/theme';
 import { uniqueForms } from '../lib/text';
 import { SyncBadge } from './SyncBadge';
 import { TabBar, type Tab } from './TabBar';
@@ -36,6 +37,9 @@ export function Library({ onOpen, onAdd, onSettings, onLearn, onTab }: Props) {
         <h1>Тексты</h1>
         <div className="bar-actions">
           <SyncBadge />
+          <button className="icon-btn" onClick={() => toggleTheme(data.settings.theme)} aria-label="Сменить тему">
+            {effectiveTheme(data.settings.theme) === 'dark' ? '☀︎' : '☾'}
+          </button>
           <button className="icon-btn" onClick={onSettings} aria-label="Настройки">
             ⚙︎
           </button>

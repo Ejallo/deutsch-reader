@@ -175,7 +175,7 @@ function GenerateTab({ onSave }: SaveProps) {
       <button className="primary wide" disabled={busy} onClick={() => void run(async () => onSave(await generate(level, topic, length, weave, setStage)))}>
         {!busy ? 'Создать текст' : stage === 'writing' ? 'Автор пишет текст…' : 'Критик проверяет…'}
       </button>
-      <p className="muted small">Один ИИ пишет текст, второй — строгий редактор — проверяет грамматику, естественность и уровень и исправляет ошибки.</p>
+      {busy && <p className="muted small">Обычно это занимает 15–50 секунд.</p>}
     </>
   );
 }
@@ -199,7 +199,7 @@ function LinkTab({ onSave }: SaveProps) {
           autoCapitalize="off"
         />
       </label>
-      <p className="muted small">Подойдут новости, блоги, Википедия. Страница читается через сервис Jina Reader — ссылка уходит ему.</p>
+      <p className="muted small">Подойдут новости, блоги, Википедия.</p>
       {error && <p className="error">{error}</p>}
       <button
         className="primary wide"

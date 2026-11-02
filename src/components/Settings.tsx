@@ -4,6 +4,7 @@ import { getData, importData, updateSettings, useData, type AppData } from '../l
 import { listModels, pickDefaultModel, type ModelInfo } from '../lib/gemini';
 import { connectionCode, disconnect, getConnection, syncNow, useSync } from '../lib/sync';
 import { Setup } from './Setup';
+import type { Theme } from '../lib/theme';
 
 interface Props {
   onBack: () => void;
@@ -19,6 +20,7 @@ export function Settings({ onBack }: Props) {
         <h1>Настройки</h1>
         <span />
       </header>
+      <ThemeSection />
       <GeminiSection />
       <LearnSection />
       <SyncSection />
@@ -76,6 +78,27 @@ function GeminiSection() {
       {settings.geminiModel && !models.length && <p className="muted small">Модель: {settings.geminiModel.replace('models/', '')}</p>}
       {msg && <p className="small">{msg}</p>}
       {error && <p className="error">{error}</p>}
+    </section>
+  );
+}
+
+function ThemeSection() {
+  const { settings } = useData();
+  const options: [Theme, string][] = [
+    ['light', 'Светлая'],
+    ['dark', 'Тёмная'],
+    ['auto', 'Как в телефоне'],
+  ];
+  return (
+    <section className="card">
+      <h2>Тема</h2>
+      <div className="chips">
+        {options.map(([id, label]) => (
+          <button key={id} className={settings.theme === id ? 'chip on' : 'chip'} onClick={() => updateSettings({ theme: id })}>
+            {label}
+          </button>
+        ))}
+      </div>
     </section>
   );
 }
