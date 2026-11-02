@@ -55,11 +55,35 @@ async function post(path: string, body: object) {
 
 const keyBytes = (b64: string) => Uint8Array.from(atob(b64.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
 
-export async function enableReminders(hour: number): Promise<void> {
+/** Rejects with a named step if it takes too long, so a stuck step is visible instead of a silent hang. */
+function step<T>(name: string, p: Promise<T>, ms = 15000): Promise<T> {
+  return Promise.race([p, new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`Шаг «${name}» не ответил за ${ms / 1000} с`)), ms))]);
+}
+
+/** One line of facts that explains most push problems on iPhone. */
+export function pushDiagnostics(): string {
+  const ios = navigator.userAgent.match(/OS (\d+)_(\d+)/);
+  return [
+    ios ? `iOS ${ios[1]}.${ios[2]}` : navigator.platform,
+    isStandalone() ? 'с экрана «Домой»' : 'в браузере',
+    'Notification' in window ? `разрешение: ${Notification.permission}` : 'нет Notification',
+    'PushManager' in window ? 'push есть' : 'push нет',
+    navigator.serviceWorker?.controller ? 'SW активен' : 'SW не активен',
+  ].join(' · ');
+}
+
+export async function enableReminders(hour: number, onStep: (s: string) => void = () => undefined): Promise<void> {
+  onStep('Запрашиваю разрешение…');
   const permission = await Notification.requestPermission();
-  if (permission !== 'granted') throw new Error('Уведомления запрещены. Разреши их в настройках iPhone → Уведомления → Deutsch.');
-  const reg = await navigator.serviceWorker.ready;
-  const sub = (await reg.pushManager.getSubscription()) ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(VAPID_PUBLIC) }));
+  if (permission !== 'granted') throw new Error(`Уведомления не разрешены (${permission}). Разреши их: Настройки iPhone → Уведомления → Deutsch.`);
+  onStep('Жду сервис-воркер…');
+  const reg = await step('сервис-воркер', navigator.serviceWorker.ready);
+  onStep('Подписываюсь на уведомления…');
+  const sub = await step(
+    'подписка',
+    (async () => (await reg.pushManager.getSubscription()) ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(VAPID_PUBLIC) })))(),
+  );
+  onStep('Отправляю на сервер…');
   await post('/subscribe', {
     subscription: sub.toJSON(),
     hour,
@@ -76,7 +100,8 @@ export async function disableReminders(): Promise<void> {
   savePrefs({ ...reminderPrefs(), enabled: false });
 }
 
-export const sendTestReminder = () => post('/test', {});
+/** Asks the server to push now; returns the push service's HTTP status (201 = accepted). */
+export const sendTestReminder = async (): Promise<number> => (await post('/test', {})).status;
 
 /** Tells the server when today's goal is met (here or on another device) so it skips the reminder. */
 export function startGoalReporting() {

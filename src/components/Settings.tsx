@@ -5,7 +5,7 @@ import { listModels, pickDefaultModel, type ModelInfo } from '../lib/gemini';
 import { connectionCode, disconnect, getConnection, syncNow, useSync } from '../lib/sync';
 import { Setup } from './Setup';
 import type { Theme } from '../lib/theme';
-import { disableReminders, enableReminders, isIos, isStandalone, pushSupported, reminderPrefs, sendTestReminder } from '../lib/push';
+import { disableReminders, enableReminders, isIos, isStandalone, pushDiagnostics, pushSupported, reminderPrefs, sendTestReminder } from '../lib/push';
 import type { ReactNode } from 'react';
 import { TabBar, type Tab } from './TabBar';
 import { StatStrip, TopBar, type Accent } from './ui';
@@ -160,6 +160,7 @@ function ReminderSection() {
             ? 'Напоминания работают только в приложении с экрана «Домой»: Safari → Поделиться → На экран Домой (iOS 16.4+).'
             : 'Напоминания пока недоступны на этом устройстве.'}
         </p>
+        <p className="muted small">{pushDiagnostics()}</p>
       </Group>
     );
   }
@@ -177,7 +178,7 @@ function ReminderSection() {
           onChange={(e) => {
             const hour = Number(e.target.value);
             setPrefs({ ...prefs, hour });
-            if (prefs.enabled) void run(() => enableReminders(hour), 'Время изменено');
+            if (prefs.enabled) void run(() => enableReminders(hour, setMsg), 'Время изменено');
           }}
         >
           {Array.from({ length: 17 }, (_, i) => i + 7).map((h) => (
@@ -193,18 +194,27 @@ function ReminderSection() {
             <button disabled={busy} onClick={() => void run(disableReminders, 'Напоминания выключены')}>
               Выключить
             </button>
-            <button disabled={busy} onClick={() => void run(async () => void (await sendTestReminder()), 'Тестовое отправлено')}>
+            <button
+              disabled={busy}
+              onClick={() =>
+                void run(async () => {
+                  const status = await sendTestReminder();
+                  if (status !== 201 && status !== 200) throw new Error(`Сервис уведомлений Apple ответил ${status}`);
+                }, 'Тестовое отправлено — придёт в течение минуты')
+              }
+            >
               Прислать тестовое
             </button>
           </>
         ) : (
-          <button className="chunky c-peach" disabled={busy} onClick={() => void run(() => enableReminders(prefs.hour), 'Напоминания включены')}>
+          <button className="chunky c-peach" disabled={busy} onClick={() => void run(() => enableReminders(prefs.hour, setMsg), 'Напоминания включены')}>
             Включить напоминания
           </button>
         )}
       </div>
       {msg && <p className="small">{msg}</p>}
       {error && <p className="error">{error}</p>}
+      <p className="muted small">{pushDiagnostics()}</p>
     </Group>
   );
 }
