@@ -476,9 +476,9 @@ export const statusOf = (d: AppData, form: string): FormStatus => wordForForm(d,
 export const liveChunks = (d: AppData) => Object.values(d.chunks ?? {}).filter((c) => !c.deleted);
 
 /** Everything in the review deck the current learn mode includes: words and/or chunks being learned. */
-export const learningCards = (d: AppData): { card?: SrsCard }[] => [
-  ...(d.settings.learnMode === 'chunks' ? [] : Object.values(d.words).filter((w) => !w.deleted && w.status === 'learning')),
-  ...(d.settings.learnMode === 'words' ? [] : liveChunks(d).filter((c) => c.status === 'learning')),
+export const learningCards = (d: AppData, mode: LearnMode = d.settings.learnMode): { card?: SrsCard }[] => [
+  ...(mode === 'chunks' ? [] : Object.values(d.words).filter((w) => !w.deleted && w.status === 'learning')),
+  ...(mode === 'words' ? [] : liveChunks(d).filter((c) => c.status === 'learning')),
 ];
 
 export const liveTexts = (d: AppData) =>

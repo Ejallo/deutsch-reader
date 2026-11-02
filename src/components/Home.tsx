@@ -1,4 +1,4 @@
-import { currentStreak, DAILY_GOAL, liveTexts, streakDays, todayKey, todayProgress, useData, xpBoostActive } from '../lib/store';
+import { currentStreak, DAILY_GOAL, liveChunks, liveTexts, streakDays, todayKey, todayProgress, updateSettings, useData, xpBoostActive, type LearnMode } from '../lib/store';
 import { levelOf } from '../lib/gamify';
 import { lastOpenedText, levelAccent, PBar, Pill, readProgress, textLevel } from './ui';
 import { TabBar, waitingCards, type Tab } from './TabBar';
@@ -37,7 +37,13 @@ export function Home({ onTab, onLearn, onOpenText, onChest, onAddKey }: Props) {
   const done = streakDays(data);
   const lvl = levelOf(data.stats.xp);
   const p = todayProgress(data);
-  const waiting = waitingCards(data);
+  const waiting = waitingCards(data, 'all');
+  const waitingChunks = waitingCards(data, 'chunks');
+  const hasChunks = liveChunks(data).some((c) => c.status === 'learning');
+  const learnIn = (mode: LearnMode) => {
+    updateSettings({ learnMode: mode });
+    onLearn();
+  };
   const goalMet = p.reviewed >= DAILY_GOAL;
   const chestClaimed = data.stats.chestDay === todayKey();
   const left = Math.max(0, DAILY_GOAL - p.reviewed);
@@ -131,9 +137,16 @@ export function Home({ onTab, onLearn, onOpenText, onChest, onAddKey }: Props) {
             </span>
           </div>
           <PBar value={p.reviewed / DAILY_GOAL} h={12} onFill />
-          <button className="chunky c-card" onClick={onLearn}>
-            {waiting > 0 ? `▶ Учить ${waiting} · ~${Math.max(1, Math.round(waiting / 5))} мин` : '▶ Повторить слова'}
-          </button>
+          <div className="goal-actions">
+            <button className="chunky c-card" onClick={() => learnIn('all')}>
+              {waiting > 0 ? `▶ Учить ${waiting}${hasChunks ? '' : ` · ~${Math.max(1, Math.round(waiting / 5))} мин`}` : '▶ Повторить'}
+            </button>
+            {hasChunks && (
+              <button className="chunky c-lav chunks-btn" onClick={() => learnIn('chunks')}>
+                🧩 Чанки{waitingChunks > 0 ? ` ${waitingChunks}` : ''}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
