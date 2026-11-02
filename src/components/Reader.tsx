@@ -178,6 +178,16 @@ export function Reader({ id, onBack }: Props) {
       </header>
       <h2 className="reader-title">{doc.title}</h2>
       {doc.source && <p className="text-source">{doc.source}</p>}
+      {doc.notes && doc.notes.length > 0 && (
+        <details className="critic-notes">
+          <summary>Что исправил критик</summary>
+          <ul>
+            {doc.notes.map((n, i) => (
+              <li key={i}>{n}</li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       <div
         ref={containerRef}

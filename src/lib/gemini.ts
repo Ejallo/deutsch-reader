@@ -3,7 +3,11 @@ import { getData, updateSettings } from './store';
 
 const API = 'https://generativelanguage.googleapis.com/v1beta';
 
-export class GeminiError extends Error {}
+export class GeminiError extends Error {
+  constructor(message: string, public status = 0) {
+    super(message);
+  }
+}
 
 // Device-local translation cache: repeated taps never spend quota
 let cache: Record<string, unknown> = {};
@@ -38,7 +42,7 @@ export async function listModels(key: string): Promise<ModelInfo[]> {
     .map((m: ModelInfo) => ({ name: m.name, displayName: m.displayName }));
 }
 
-const versionOf = (name: string) => parseFloat(name.match(/gemini-(\d+(?:\.\d+)?)/)?.[1] ?? '0');
+export const versionOf = (name: string) => parseFloat(name.match(/gemini-(\d+(?:\.\d+)?)/)?.[1] ?? '0');
 
 /** Newest stable Flash-Lite: the cheapest on free-tier quota; falls back to Flash. */
 export function pickDefaultModel(models: ModelInfo[]): string {
@@ -58,30 +62,49 @@ async function ensureModel(key: string): Promise<string> {
   return model;
 }
 
-async function generate<T>(prompt: string, schema: object): Promise<T> {
+interface GenOptions {
+  model?: string; // a specific model instead of the user's default
+  temperature?: number;
+  timeoutMs?: number;
+}
+
+const DEFAULT_TIMEOUT_MS = 45000;
+
+async function generate<T>(prompt: string, schema: object, opts: GenOptions = {}): Promise<T> {
   const key = getData().settings.geminiKey;
   if (!key) throw new GeminiError('Добавь ключ Gemini в настройках');
   if (!navigator.onLine) throw new GeminiError('Нет интернета');
-  const model = await ensureModel(key);
-  const r = await fetch(`${API}/${model}:generateContent`, {
+  const model = opts.model ?? (await ensureModel(key));
+  // Some models occasionally never answer; don't let the app hang on them
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  let r: Response;
+  try {
+    r = await fetch(`${API}/${model}:generateContent`, {
+    signal: ctrl.signal,
     method: 'POST',
     headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: 'application/json', responseSchema: schema, temperature: 0.2 },
+      generationConfig: { responseMimeType: 'application/json', responseSchema: schema, temperature: opts.temperature ?? 0.2 },
     }),
-  });
-  if (r.status === 429) throw new GeminiError('Лимит бесплатных запросов Gemini исчерпан — попробуй позже');
+    });
+  } catch {
+    throw new GeminiError('Gemini не ответил вовремя — попробуй ещё раз', 408);
+  } finally {
+    clearTimeout(timer);
+  }
+  if (r.status === 429) throw new GeminiError('Лимит бесплатных запросов Gemini исчерпан — попробуй позже', 429);
   if (r.status === 400 || r.status === 403) {
     const msg = (await r.json().catch(() => null))?.error?.message ?? '';
     throw new GeminiError(/API key/i.test(msg) ? 'Ключ Gemini не подходит' : `Gemini: ${msg || r.status}`);
   }
   if (r.status === 404) {
     // Model was retired: forget it so the next call picks a fresh one
-    updateSettings({ geminiModel: '' });
-    throw new GeminiError('Модель Gemini недоступна — повтори, выберу другую');
+    if (!opts.model) updateSettings({ geminiModel: '' });
+    throw new GeminiError('Модель Gemini недоступна — повтори, выберу другую', 404);
   }
-  if (!r.ok) throw new GeminiError(`Gemini: ошибка ${r.status}`);
+  if (!r.ok) throw new GeminiError(`Gemini: ошибка ${r.status}`, r.status);
   const j = await r.json();
   const text = (j.candidates?.[0]?.content?.parts ?? []).map((p: { text?: string }) => p.text ?? '').join('');
   try {
@@ -211,5 +234,101 @@ export async function generateText(level: string, topic: string, words: number, 
       properties: { title: S('Short German title'), text: S('The German text, paragraphs separated by \n\n') },
       required: ['title', 'text'],
     },
+    { temperature: 0.8 },
   );
+}
+
+// --- Critic: a second, stricter pass over generated texts ---
+
+const CRITIC_TIMEOUT_MS = 25000;
+const BAD_KEY = 'criticBadModels';
+const BAD_TTL = 7 * 24 * 3600 * 1000;
+
+// Models that timed out or hit their quota are skipped for a week (per device)
+function badModels(): Record<string, number> {
+  try {
+    const all = JSON.parse(localStorage.getItem(BAD_KEY) ?? '{}') as Record<string, number>;
+    return Object.fromEntries(Object.entries(all).filter(([, t]) => Date.now() - t < BAD_TTL));
+  } catch {
+    return {};
+  }
+}
+
+function markBad(model: string) {
+  try {
+    localStorage.setItem(BAD_KEY, JSON.stringify({ ...badModels(), [model]: Date.now() }));
+  } catch {
+    // storage unavailable: the model is simply retried next time
+  }
+}
+
+let criticOk: string | null = null;
+
+/** Critic candidates: the last model that worked, then newest stable non-lite Flash models, then the writer's model. */
+async function criticCandidates(): Promise<string[]> {
+  const key = getData().settings.geminiKey;
+  const writer = await ensureModel(key);
+  const bad = badModels();
+  const flash = (await listModels(key))
+    .filter((m) => !/preview|exp|latest/.test(m.name) && /gemini-\d/.test(m.name) && m.name.includes('flash') && !m.name.includes('lite'))
+    .sort((a, b) => versionOf(b.name) - versionOf(a.name))
+    .map((m) => m.name)
+    .filter((m) => !bad[m]);
+  return [...new Set([...(criticOk ? [criticOk] : []), ...flash.slice(0, 3), writer])];
+}
+
+export interface Review {
+  title: string;
+  text: string;
+  changes: { before: string; after: string; reason: string }[];
+  levelNote: string;
+}
+
+const reviewSchema = {
+  type: 'OBJECT',
+  properties: {
+    title: S('Corrected German title'),
+    text: S('The full corrected German text, paragraphs separated by \n\n'),
+    changes: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: { before: S('Original fragment'), after: S('Corrected fragment'), reason: S('Short reason in Russian') },
+        required: ['before', 'after', 'reason'],
+      },
+    },
+    levelNote: S('One sentence in Russian: does the final text match the level'),
+  },
+  required: ['title', 'text', 'changes', 'levelNote'],
+};
+
+export async function reviewText(level: string, words: string[], title: string, text: string): Promise<Review> {
+  const prompt =
+    `You are a strict German editor and CEFR examiner. A text for a learner at level ${level} must be checked and corrected.
+` +
+    `Fix: grammar, spelling, capitalization (only nouns and sentence starts are capitalized), punctuation, unnatural or non-idiomatic phrasing, ` +
+    `logic and coherence. Replace words and structures that are above ${level} with simpler ones; keep the text interesting. ` +
+    (words.length ? `These words must appear (any form); add them naturally if missing: ${words.join(', ')}. ` : '') +
+    `Keep the length and paragraph structure. Do not translate. If the text is already perfect, return it unchanged with an empty changes list. ` +
+    `List every change.
+
+Title: ${title}
+
+${text}`;
+  let last: unknown;
+  for (const model of await criticCandidates()) {
+    try {
+      const review = await generate<Review>(prompt, reviewSchema, { model, temperature: 0.1, timeoutMs: CRITIC_TIMEOUT_MS });
+      criticOk = model;
+      return review;
+    } catch (e) {
+      last = e;
+      // Slow, retired or out-of-quota model: remember it and try the next one
+      const status = e instanceof GeminiError ? e.status : 0;
+      if (![408, 404, 429, 500, 503].includes(status)) throw e;
+      markBad(model);
+      if (criticOk === model) criticOk = null;
+    }
+  }
+  throw last;
 }

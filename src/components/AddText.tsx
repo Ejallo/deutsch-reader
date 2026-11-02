@@ -11,6 +11,7 @@ import {
   readingMinutes,
   wordsToWeave,
   type FoundText,
+  type GenStage,
   type Length,
   type Level,
   type Tale,
@@ -32,7 +33,7 @@ const TABS: [Tab, string][] = [
 
 export function AddText({ onBack, onSaved }: Props) {
   const [tab, setTab] = useState<Tab>('paste');
-  const save = (t: FoundText) => onSaved(addText(t.title, t.content, t.source));
+  const save = (t: FoundText) => onSaved(addText(t.title, t.content, t.source, t.notes));
 
   return (
     <div className="screen">
@@ -122,6 +123,7 @@ function GenerateTab({ onSave }: SaveProps) {
   const [length, setLength] = useState<Length>('medium');
   const [weave, setWeave] = useState(true);
   const { busy, error, run } = useTask();
+  const [stage, setStage] = useState<GenStage>('writing');
   const myWords = wordsToWeave();
 
   return (
@@ -170,9 +172,10 @@ function GenerateTab({ onSave }: SaveProps) {
         </label>
       )}
       {error && <p className="error">{error}</p>}
-      <button className="primary wide" disabled={busy} onClick={() => void run(async () => onSave(await generate(level, topic, length, weave)))}>
-        {busy ? 'Пишу текст…' : 'Создать текст'}
+      <button className="primary wide" disabled={busy} onClick={() => void run(async () => onSave(await generate(level, topic, length, weave, setStage)))}>
+        {!busy ? 'Создать текст' : stage === 'writing' ? 'Автор пишет текст…' : 'Критик проверяет…'}
       </button>
+      <p className="muted small">Один ИИ пишет текст, второй — строгий редактор — проверяет грамматику, естественность и уровень и исправляет ошибки.</p>
     </>
   );
 }

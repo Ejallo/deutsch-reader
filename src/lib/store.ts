@@ -13,6 +13,7 @@ export interface TextDoc extends Rec {
   title: string;
   content: string;
   source?: string; // where the text came from (attribution for library texts)
+  notes?: string[]; // e.g. corrections made by the AI critic
   createdAt: number;
 }
 
@@ -199,10 +200,10 @@ function update(fn: (d: AppData) => AppData) {
 const now = () => Date.now();
 export const lemmaKey = (lemma: string) => lemma.trim().toLowerCase();
 
-export function addText(title: string, content: string, source?: string): string {
+export function addText(title: string, content: string, source?: string, notes?: string[]): string {
   const id = crypto.randomUUID();
   const t = now();
-  update((d) => ({ ...d, texts: { ...d.texts, [id]: { id, title, content, source, createdAt: t, updatedAt: t } } }));
+  update((d) => ({ ...d, texts: { ...d.texts, [id]: { id, title, content, source, ...(notes?.length ? { notes } : {}), createdAt: t, updatedAt: t } } }));
   return id;
 }
 

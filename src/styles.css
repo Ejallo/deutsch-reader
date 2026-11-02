@@ -1140,3 +1140,21 @@ button.link.danger {
   font-size: 13px;
   color: var(--muted);
 }
+.critic-notes {
+  margin: -4px 0 14px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.critic-notes summary {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--gold);
+  text-underline-offset: 3px;
+}
+.critic-notes ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+.critic-notes li {
+  margin: 4px 0;
+}
