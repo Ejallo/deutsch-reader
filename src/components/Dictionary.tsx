@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { liveChunks, removeChunks, removeWord, removeWords, resetChunkProgress, resetWordProgress, updateChunk, updateWord, useData, type Chunk, type Word } from '../lib/store';
 import { AddWordSheet } from './AddWordSheet';
+import { AddChunkSheet } from './AddChunkSheet';
 import { fullGerman, shortTranslation } from '../lib/feed';
 import { speak } from '../lib/tts';
 import { TabBar, type Tab } from './TabBar';
@@ -246,6 +247,7 @@ function ChunksBody() {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [openId, setOpenId] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
 
   const chunks = useMemo(() => liveChunks(data), [data]);
   const endOfDay = new Date().setHours(23, 59, 59, 999);
@@ -288,6 +290,12 @@ function ChunksBody() {
         </div>
       </div>
 
+      <div className="dict-actions">
+        <button className="chunky c-lav" onClick={() => setAdding(true)}>
+          + Добавить
+        </button>
+      </div>
+
       <input className="dict-search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="⌕  Поиск по чанкам" />
       <div className="chips tight">
         {FILTERS.map(([id, label]) => (
@@ -300,7 +308,7 @@ function ChunksBody() {
 
       {chunks.length === 0 ? (
         <div className="empty">
-          <p>Чанков пока нет. В тексте нажми на слово (или выдели фразу долгим нажатием) и «🧩 Учить чанком» — приложение соберёт готовое словосочетание с примерами.</p>
+          <p>Чанков пока нет. В тексте нажми на слово (или выдели фразу долгим нажатием) и «🧩 Учить чанком» — приложение соберёт готовое словосочетание с примерами. Или добавь чанк вручную.</p>
         </div>
       ) : shown.length === 0 ? (
         <p className="muted">Ничего не нашлось.</p>
@@ -329,6 +337,7 @@ function ChunksBody() {
           ))}
         </ul>
       )}
+      {adding && <AddChunkSheet onClose={() => setAdding(false)} />}
       {open && !open.deleted && <ChunkDetails c={open} onClose={() => setOpenId(null)} />}
     </>
   );

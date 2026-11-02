@@ -198,21 +198,22 @@ const exampleSchema = {
 export async function makeChunk(hint: string, sentence: string, fresh = false): Promise<ChunkInfo> {
   const key = `c|${hint}|${sentence}`;
   if (!fresh && cache[key]) return cache[key] as ChunkInfo;
+  // Without a sentence the learner typed the chunk by hand: normalize it and invent all examples
+  const source = sentence
+    ? `Sentence: "${sentence}"\nThe learner selected: "${hint}"\n\n` +
+      `1. Find the natural chunk of 2-5 words in the sentence that contains the selection (e.g. "einen Termin vereinbaren", "Muskelkater haben", "Ist das Gerät frei?"). `
+    : `The learner wants to learn this chunk: "${hint}" (it may contain mistakes or be in Russian - then use the natural German chunk).\n\n` +
+      `1. Correct the chunk if needed. `;
+  const examplesRule = sentence
+    ? `3. Examples: first the original sentence (shorten it to the clause with the chunk if it is longer than 14 words), then 2 new short everyday sentences (A2-B1) using the chunk in different forms. `
+    : `3. Examples: 3 short everyday sentences (A2-B1) using the chunk in different forms. `;
   const r = await generate<ChunkInfo>(
-    `You help a Russian speaker learn German with the lexical approach: learning ready-made chunks (collocations, fixed phrases) instead of single words.
-` +
-      `Sentence: "${sentence}"
-The learner selected: "${hint}"
-
-` +
-      `1. Find the natural chunk of 2-5 words in the sentence that contains the selection (e.g. "einen Termin vereinbaren", "Muskelkater haben", "Ist das Gerät frei?"). ` +
-      `Give it in dictionary form: verb as infinitive at the end, separable verbs joined, keep the article with nouns. A short fixed question or expression stays as it is.
-` +
-      `2. The key word is the part of the chunk a learner is most likely to get wrong: usually the verb or preposition that goes with the noun, not the selected noun itself.
-` +
-      `3. Examples: first the original sentence (shorten it to the clause with the chunk if it is longer than 14 words), then 2 new short everyday sentences (A2-B1) using the chunk in different forms. ` +
-      `For each example give "gap" = the key word exactly as spelled there and 3 wrong fillers that do not fit this chunk.
-Answer in JSON.`,
+    `You help a Russian speaker learn German with the lexical approach: learning ready-made chunks (collocations, fixed phrases) instead of single words.\n` +
+      source +
+      `Give it in dictionary form: verb as infinitive at the end, separable verbs joined, keep the article with nouns. A short fixed question or expression stays as it is.\n` +
+      `2. The key word is the part of the chunk a learner is most likely to get wrong: usually the verb or preposition that goes with the noun, not the selected noun itself.\n` +
+      examplesRule +
+      `For each example give "gap" = the key word exactly as spelled there and 3 wrong fillers that do not fit this chunk.\nAnswer in JSON.`,
     {
       type: 'OBJECT',
       properties: {

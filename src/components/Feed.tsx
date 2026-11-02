@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { addXp, countPractice, DAILY_GOAL, getData, learningCards, recordGoal, saveChunkReview, saveReview, todayProgress, updateSettings, useData, type Chunk, type ChunkExample, type Word } from '../lib/store';
+import { addXp, countPractice, DAILY_GOAL, type LearnMode, getData, learningCards, recordGoal, saveChunkReview, saveReview, todayProgress, updateSettings, useData, type Chunk, type ChunkExample, type Word } from '../lib/store';
 import { review, type Answer } from '../lib/srs';
 import { afterAnswer, checkChunk, checkGap, checkTiles, checkWritten, EXTRA_NEW_STEP, fullGerman, isSpecial, newSession, nextItem, shortTranslation, type FeedItem, type Format } from '../lib/feed';
 import { comboMultiplier, XP } from '../lib/gamify';
@@ -19,6 +19,11 @@ const AUTO_NEXT_MS = 1100;
 const ROUND_BONUS_XP = 20;
 const LEAVE_MS = 260;
 const SWIPE_PX = 60;
+const MODES: [LearnMode, string][] = [
+  ['all', 'Всё'],
+  ['words', 'Слова'],
+  ['chunks', '🧩 Чанки'],
+];
 // A correct chunk answer faster than this counts as "easy" and is scheduled much further out
 const EASY_MS: Partial<Record<Format, number>> = { 'c-choose': 4000, 'c-tiles': 9000, 'c-write': 7000, 'c-ru': 9000 };
 
@@ -151,6 +156,14 @@ export function Feed({ onClose }: Props) {
     setSpecialDone(true);
   };
 
+  const switchMode = (m: LearnMode) => {
+    if (m === getData().settings.learnMode) return;
+    clearTimeout(autoTimer.current);
+    updateSettings({ learnMode: m });
+    session.current.offeredMore = false;
+    load(); // cards of the other kind still queued are dropped by nextItem
+  };
+
   const moreNew = () => {
     session.current.extraNew += EXTRA_NEW_STEP;
     session.current.offeredMore = false;
@@ -270,10 +283,19 @@ export function Feed({ onClose }: Props) {
         </button>
       </header>
 
+      <div className="segment feed-mode">
+        {MODES.map(([m, label]) => (
+          <button key={m} className={data.settings.learnMode === m ? 'on' : ''} onClick={() => switchMode(m)}>
+            {label}
+          </button>
+        ))}
+      </div>
+
       <div className="feed-stage">
         {empty && (
           <EmptyCard
             reason={empty}
+            mode={data.settings.learnMode}
             limit={data.settings.newPerDay}
             onClose={onClose}
             onMore={() => {
@@ -666,13 +688,13 @@ function MoreCard({ left, onMore, onSkip }: { left: number; onMore: () => void; 
   );
 }
 
-function EmptyCard({ reason, limit, onClose, onMore }: { reason: 'empty' | 'limit'; limit: number; onClose: () => void; onMore: () => void }) {
+function EmptyCard({ reason, mode, limit, onClose, onMore }: { reason: 'empty' | 'limit'; mode: LearnMode; limit: number; onClose: () => void; onMore: () => void }) {
   return (
     <div className="feed-card entering">
       <Mascot size={110} />
       {reason === 'empty' ? (
         <>
-          <p className="feed-tr">Пока нечего учить</p>
+          <p className="feed-tr">{mode === 'chunks' ? 'Чанков пока нет' : mode === 'words' ? 'Слов пока нет' : 'Пока нечего учить'}</p>
           <p className="muted">Открой текст, нажми на незнакомое слово и «+ В словарь» или «Учить чанком» — оно появится здесь.</p>
         </>
       ) : (

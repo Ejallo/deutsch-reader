@@ -206,7 +206,7 @@ function nextSpecial(d: AppData, s: Session, learning: Word[]): FeedItem | null 
 
   if (s.count >= s.nextSurpriseAt) {
     s.nextSurpriseAt = s.count + between(8, 12);
-    const nouns = Object.values(d.words).filter((w) => !w.deleted && w.article);
+    const nouns = d.settings.learnMode === 'chunks' ? [] : Object.values(d.words).filter((w) => !w.deleted && w.article);
     if (nouns.length >= 3 && Math.random() < 0.5) return specialItem(s, 'blitz', { blitz: shuffle(nouns.map((w) => w.id)) });
     return specialItem(s, 'chest');
   }
@@ -223,12 +223,12 @@ function nextSpecial(d: AppData, s: Session, learning: Word[]): FeedItem | null 
 
 export function nextItem(d: AppData, s: Session): NextResult {
   const now = Date.now();
-  const words = Object.values(d.words).filter((w) => !w.deleted && w.status === 'learning');
+  const mode = d.settings.learnMode;
+  const words = mode === 'chunks' ? [] : Object.values(d.words).filter((w) => !w.deleted && w.status === 'learning');
+  const chunks = mode === 'words' ? [] : liveChunks(d).filter((c) => c.status === 'learning' && c.examples.length);
   const units: Unit[] = [
     ...words.map((w) => ({ key: w.id, card: w.card, createdAt: w.createdAt, word: w })),
-    ...liveChunks(d)
-      .filter((c) => c.status === 'learning' && c.examples.length)
-      .map((c) => ({ key: `c:${c.id}`, card: c.card, createdAt: c.createdAt, chunk: c })),
+    ...chunks.map((c) => ({ key: `c:${c.id}`, card: c.card, createdAt: c.createdAt, chunk: c })),
   ];
   if (!units.length) return { item: null, reason: 'empty' };
   const byKey = new Map(units.map((u) => [u.key, u]));

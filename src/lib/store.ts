@@ -74,6 +74,8 @@ export interface FormLink extends Rec {
   lemmaKey: string;
 }
 
+export type LearnMode = 'all' | 'words' | 'chunks';
+
 export interface Settings extends Rec {
   geminiKey: string;
   geminiModel: string;
@@ -84,6 +86,7 @@ export interface Settings extends Rec {
   readerSize: number;
   readerSpacing: 'normal' | 'loose';
   theme: Theme;
+  learnMode: LearnMode; // what the feed shows
 }
 
 export interface Stats extends Rec {
@@ -125,7 +128,7 @@ export const emptyData = (): AppData => ({
   words: {},
   chunks: {},
   forms: {},
-  settings: { geminiKey: '', geminiModel: '', newPerDay: DEFAULT_NEW_PER_DAY, sound: true, listening: true, readerFont: 'onest', readerSize: 19, readerSpacing: 'normal', theme: 'time', updatedAt: 0 },
+  settings: { geminiKey: '', geminiModel: '', newPerDay: DEFAULT_NEW_PER_DAY, sound: true, listening: true, readerFont: 'onest', readerSize: 19, readerSpacing: 'normal', theme: 'time', learnMode: 'all', updatedAt: 0 },
   progress: { day: '', newIntroduced: 0, reviewed: 0, updatedAt: 0 },
   stats: { xp: 0, streak: 0, lastGoalDay: '', freezeUsedDay: '', milestones: [], gems: 0, freezes: 0, chestDay: '', boostUntil: 0, updatedAt: 0 },
 });
@@ -472,10 +475,10 @@ export const statusOf = (d: AppData, form: string): FormStatus => wordForForm(d,
 
 export const liveChunks = (d: AppData) => Object.values(d.chunks ?? {}).filter((c) => !c.deleted);
 
-/** Everything in the review deck: words and chunks being learned. */
+/** Everything in the review deck the current learn mode includes: words and/or chunks being learned. */
 export const learningCards = (d: AppData): { card?: SrsCard }[] => [
-  ...Object.values(d.words).filter((w) => !w.deleted && w.status === 'learning'),
-  ...liveChunks(d).filter((c) => c.status === 'learning'),
+  ...(d.settings.learnMode === 'chunks' ? [] : Object.values(d.words).filter((w) => !w.deleted && w.status === 'learning')),
+  ...(d.settings.learnMode === 'words' ? [] : liveChunks(d).filter((c) => c.status === 'learning')),
 ];
 
 export const liveTexts = (d: AppData) =>
