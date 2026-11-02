@@ -12,9 +12,10 @@ interface Props {
   onSettings: () => void;
   onLearn: () => void;
   onTab: (t: Tab) => void;
+  onAddKey: () => void;
 }
 
-export function Library({ onOpen, onAdd, onSettings, onLearn, onTab }: Props) {
+export function Library({ onOpen, onAdd, onSettings, onLearn, onTab, onAddKey }: Props) {
   const data = useData();
   const texts = liveTexts(data);
 
@@ -45,6 +46,13 @@ export function Library({ onOpen, onAdd, onSettings, onLearn, onTab }: Props) {
           </button>
         </div>
       </header>
+
+      {!data.settings.geminiKey && (
+        <button className="key-banner" onClick={onAddKey}>
+          <b>Добавь ключ Gemini</b>
+          <span>Без него не работают перевод и создание текстов. Это бесплатно — займёт минуту.</span>
+        </button>
+      )}
 
       <div className="stats-row">
         <span title="Серия дней">🔥 {streak}</span>

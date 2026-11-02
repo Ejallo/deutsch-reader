@@ -1386,3 +1386,28 @@ input[type='checkbox'] {
   color: var(--muted);
   font-size: 14px;
 }
+.key-steps {
+  padding-left: 20px;
+  margin: 12px 0;
+  line-height: 1.6;
+}
+.key-steps a {
+  color: var(--text);
+  text-decoration-color: var(--gold);
+}
+.key-banner {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 4px 0 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--gold);
+  background: var(--new-bg);
+}
+.key-banner span {
+  font-size: 14px;
+  color: var(--muted);
+}
