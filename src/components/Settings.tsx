@@ -20,6 +20,7 @@ export function Settings({ onBack }: Props) {
         <span />
       </header>
       <GeminiSection />
+      <LearnSection />
       <SyncSection />
       <DataSection />
     </div>
@@ -75,6 +76,25 @@ function GeminiSection() {
       {settings.geminiModel && !models.length && <p className="muted small">Модель: {settings.geminiModel.replace('models/', '')}</p>}
       {msg && <p className="small">{msg}</p>}
       {error && <p className="error">{error}</p>}
+    </section>
+  );
+}
+
+function LearnSection() {
+  const { settings } = useData();
+  return (
+    <section className="card">
+      <h2>Заучивание</h2>
+      <label className="field">
+        <span>Новых слов в день</span>
+        <select value={settings.newPerDay} onChange={(e) => updateSettings({ newPerDay: Number(e.target.value) })}>
+          {[5, 10, 15, 20, 30].map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </select>
+      </label>
     </section>
   );
 }

@@ -17,6 +17,19 @@ export interface TextDoc extends Rec {
 
 export type WordStatus = 'learning' | 'known';
 
+// FSRS card state with dates stored as epoch ms (JSON-friendly)
+export interface SrsCard {
+  due: number;
+  stability: number;
+  difficulty: number;
+  scheduled_days: number;
+  reps: number;
+  lapses: number;
+  learning_steps: number;
+  state: number;
+  last_review?: number;
+}
+
 export interface Word extends Rec {
   id: string; // lemma key
   lemma: string;
@@ -29,6 +42,7 @@ export interface Word extends Rec {
   status: WordStatus;
   example: string;
   createdAt: number;
+  card?: SrsCard; // absent until the word's first review
 }
 
 export interface FormLink extends Rec {
@@ -38,6 +52,13 @@ export interface FormLink extends Rec {
 export interface Settings extends Rec {
   geminiKey: string;
   geminiModel: string;
+  newPerDay: number;
+}
+
+export interface Progress extends Rec {
+  day: string; // local YYYY-MM-DD the counters belong to
+  newIntroduced: number;
+  reviewed: number;
 }
 
 export interface AppData {
@@ -46,15 +67,29 @@ export interface AppData {
   words: Record<string, Word>;
   forms: Record<string, FormLink>;
   settings: Settings;
+  progress: Progress;
 }
+
+export const DEFAULT_NEW_PER_DAY = 10;
 
 export const emptyData = (): AppData => ({
   version: 1,
   texts: {},
   words: {},
   forms: {},
-  settings: { geminiKey: '', geminiModel: '', updatedAt: 0 },
+  settings: { geminiKey: '', geminiModel: '', newPerDay: DEFAULT_NEW_PER_DAY, updatedAt: 0 },
+  progress: { day: '', newIntroduced: 0, reviewed: 0, updatedAt: 0 },
 });
+
+export function todayKey(d = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Today's counters (zeroed when the stored ones belong to another day). */
+export function todayProgress(d: AppData): Progress {
+  const day = todayKey();
+  return d.progress.day === day ? d.progress : { day, newIntroduced: 0, reviewed: 0, updatedAt: 0 };
+}
 
 function mergeMap<T extends Rec>(a: Record<string, T>, b: Record<string, T>): Record<string, T> {
   const out: Record<string, T> = { ...a };
@@ -64,13 +99,20 @@ function mergeMap<T extends Rec>(a: Record<string, T>, b: Record<string, T>): Re
   return out;
 }
 
+const newer = <T extends Rec>(a: T | undefined, b: T | undefined, fallback: T): T =>
+  !a ? (b ?? fallback) : !b ? a : b.updatedAt > a.updatedAt ? b : a;
+
+// Tolerates data written by older app versions (missing fields)
 export function mergeData(a: AppData, b: AppData): AppData {
+  const base = emptyData();
+  const settings = newer(a.settings, b.settings, base.settings);
   return {
     version: 1,
-    texts: mergeMap(a.texts, b.texts),
-    words: mergeMap(a.words, b.words),
-    forms: mergeMap(a.forms, b.forms),
-    settings: b.settings.updatedAt > a.settings.updatedAt ? b.settings : a.settings,
+    texts: mergeMap(a.texts ?? {}, b.texts ?? {}),
+    words: mergeMap(a.words ?? {}, b.words ?? {}),
+    forms: mergeMap(a.forms ?? {}, b.forms ?? {}),
+    settings: { ...base.settings, ...settings },
+    progress: newer(a.progress, b.progress, base.progress),
   };
 }
 
@@ -138,10 +180,13 @@ export function saveWord(form: string, w: Omit<Word, 'id' | 'createdAt' | 'updat
   const t = now();
   update((d) => {
     const prev = d.words[key];
-    const createdAt = prev && !prev.deleted ? prev.createdAt : t;
+    const alive = prev && !prev.deleted;
+    const createdAt = alive ? prev.createdAt : t;
+    // Re-saving (e.g. learning <-> known) keeps the review history
+    const card = alive ? prev.card : undefined;
     return {
       ...d,
-      words: { ...d.words, [key]: { ...w, id: key, createdAt, updatedAt: t } },
+      words: { ...d.words, [key]: { ...w, id: key, createdAt, card, updatedAt: t } },
       forms: { ...d.forms, [form]: { lemmaKey: key, updatedAt: t } },
     };
   });
@@ -161,6 +206,28 @@ export function removeWord(key: string) {
       if (link.lemmaKey === key && !link.deleted) forms[f] = { ...link, deleted: true, updatedAt: t };
     }
     return { ...d, forms, words: { ...d.words, [key]: { ...d.words[key], deleted: true, updatedAt: t } } };
+  });
+}
+
+/** Stores a review result; counts it toward today's progress. */
+export function saveReview(key: string, card: SrsCard, wasNew: boolean) {
+  const t = now();
+  update((d) => {
+    const p = todayProgress(d);
+    return {
+      ...d,
+      words: { ...d.words, [key]: { ...d.words[key], card, updatedAt: t } },
+      progress: { ...p, newIntroduced: p.newIntroduced + (wasNew ? 1 : 0), reviewed: p.reviewed + 1, updatedAt: t },
+    };
+  });
+}
+
+/** Counts a practice answer that doesn't touch the schedule. */
+export function countPractice() {
+  const t = now();
+  update((d) => {
+    const p = todayProgress(d);
+    return { ...d, progress: { ...p, reviewed: p.reviewed + 1, updatedAt: t } };
   });
 }
 

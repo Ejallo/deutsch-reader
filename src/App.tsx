@@ -5,9 +5,10 @@ import { AddText } from './components/AddText';
 import { Reader } from './components/Reader';
 import { Settings } from './components/Settings';
 import { Setup } from './components/Setup';
+import { Feed } from './components/Feed';
 import { useSync } from './lib/sync';
 
-export type View = { name: 'library' } | { name: 'add' } | { name: 'reader'; id: string } | { name: 'settings' };
+export type View = { name: 'library' } | { name: 'add' } | { name: 'reader'; id: string } | { name: 'settings' } | { name: 'feed' };
 
 export function App() {
   const [view, setView] = useState<View>({ name: 'library' });
@@ -34,7 +35,16 @@ export function App() {
       return <Reader id={view.id} onBack={() => setView({ name: 'library' })} />;
     case 'settings':
       return <Settings onBack={() => setView({ name: 'library' })} />;
+    case 'feed':
+      return <Feed onClose={() => setView({ name: 'library' })} />;
     default:
-      return <Library onOpen={(id) => setView({ name: 'reader', id })} onAdd={() => setView({ name: 'add' })} onSettings={() => setView({ name: 'settings' })} />;
+      return (
+        <Library
+          onOpen={(id) => setView({ name: 'reader', id })}
+          onAdd={() => setView({ name: 'add' })}
+          onSettings={() => setView({ name: 'settings' })}
+          onLearn={() => setView({ name: 'feed' })}
+        />
+      );
   }
 }

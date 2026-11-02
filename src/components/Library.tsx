@@ -2,14 +2,16 @@ import { useMemo } from 'react';
 import { liveTexts, statusOf, useData } from '../lib/store';
 import { uniqueForms } from '../lib/text';
 import { SyncBadge } from './SyncBadge';
+import { TabBar } from './TabBar';
 
 interface Props {
   onOpen: (id: string) => void;
   onAdd: () => void;
   onSettings: () => void;
+  onLearn: () => void;
 }
 
-export function Library({ onOpen, onAdd, onSettings }: Props) {
+export function Library({ onOpen, onAdd, onSettings, onLearn }: Props) {
   const data = useData();
   const texts = liveTexts(data);
 
@@ -68,6 +70,7 @@ export function Library({ onOpen, onAdd, onSettings }: Props) {
           +
         </button>
       )}
+      <TabBar onLearn={onLearn} />
     </div>
   );
 }
