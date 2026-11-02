@@ -99,7 +99,8 @@ function SyncSection() {
   const showQr = async () => {
     const c = connectionCode(conn);
     setCode(c);
-    setQr(await QRCode.toDataURL(c, { margin: 1, width: 280 }));
+    // Low error correction keeps the code less dense, which phone cameras read more easily
+    setQr(await QRCode.toDataURL(c, { margin: 2, width: 360, errorCorrectionLevel: 'L' }));
   };
 
   return (
@@ -124,7 +125,7 @@ function SyncSection() {
       {qr && (
         <div className="qr">
           <p className="small">На втором устройстве: Настройки или первый экран → «Сканировать QR». В коде токен GitHub — не показывай его другим.</p>
-          <img src={qr} alt="QR-код подключения" width={280} height={280} />
+          <img src={qr} alt="QR-код подключения" width={360} height={360} />
           <button
             className="link"
             onClick={() => {
