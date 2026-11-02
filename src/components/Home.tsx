@@ -145,20 +145,25 @@ export function Home({ onTab, onLearn, onOpenText, onChest, onAddKey }: Props) {
         <div className="tile goal c-lav">
           <div className="goal-head">
             <b>🧩 Чанки</b>
-            <span style={{ fontWeight: 700, fontSize: 14 }}>{chunkCount ? `${chunkCount} в колоде` : 'фразы целиком'}</span>
-          </div>
-          {chunkCount ? (
-            <button className="chunky c-card" onClick={() => learnIn('chunks')}>
-              {waitingChunks > 0 ? `▶ Учить чанки · ${waitingChunks}` : '▶ Повторить чанки'}
+            <button
+              className="link"
+              style={{ fontWeight: 700, fontSize: 14 }}
+              onClick={() => {
+                try {
+                  sessionStorage.setItem('dictSegment', 'chunks');
+                } catch {
+                  // the dictionary just opens on words
+                }
+                onTab('words');
+              }}
+            >
+              {chunkCount ? `${chunkCount} в колоде · ` : ''}+ Добавить
             </button>
-          ) : (
-            <>
-              <p className="small" style={{ margin: 0 }}>Нажми на слово в тексте → «🧩 Учить чанком» или добавь в Словаре.</p>
-              <button className="chunky c-card" onClick={() => onTab('words')}>
-                + Добавить чанк
-              </button>
-            </>
-          )}
+          </div>
+          {!chunkCount && <p className="small" style={{ margin: 0 }}>Пока пусто: нажми на слово в тексте → «🧩 Учить чанком» или добавь вручную.</p>}
+          <button className="chunky c-card" onClick={() => learnIn('chunks')}>
+            {waitingChunks > 0 ? `▶ Учить чанки · ${waitingChunks}` : '▶ Учить чанки'}
+          </button>
         </div>
       </div>
 

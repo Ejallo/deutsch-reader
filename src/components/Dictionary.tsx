@@ -59,7 +59,16 @@ function Dots({ n }: { n: number }) {
 }
 
 export function Dictionary({ onTab, onLearn }: Props) {
-  const [segment, setSegment] = useState<'words' | 'chunks'>('words');
+  // Home's "+ Добавить" on the chunks card opens the dictionary on chunks
+  const [segment, setSegment] = useState<'words' | 'chunks'>(() => {
+    try {
+      const s = sessionStorage.getItem('dictSegment');
+      sessionStorage.removeItem('dictSegment');
+      return s === 'chunks' ? 'chunks' : 'words';
+    } catch {
+      return 'words';
+    }
+  });
   const toggle = (
     <div className="segment">
       <button className={segment === 'words' ? 'on' : ''} onClick={() => setSegment('words')}>
