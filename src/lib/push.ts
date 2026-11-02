@@ -1,7 +1,7 @@
 import { getData, subscribeData } from './store';
 
-// Reminder server (Cloudflare Worker in push-worker/). Set after the first deploy.
-export const PUSH_URL = '';
+// Reminder server (Cloudflare Worker in push-worker/)
+export const PUSH_URL = 'https://deutsch-reader-push.vetervlad94.workers.dev';
 const VAPID_PUBLIC = 'BOfLPCjXylsvmyx0FXbtuajbnS1XobXkBbWL0r0ln5JTJqfGEjiUED3TWilSzxJ3QK9QB-GKJGjlDVJKtWqlh7E';
 
 export interface ReminderPrefs {
