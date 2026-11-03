@@ -4,7 +4,7 @@ import { lastOpenedText, levelAccent, PBar, Pill, readProgress, textLevel } from
 import { TabBar, waitingCards, type Tab } from './TabBar';
 import { SyncBadge } from './SyncBadge';
 import { Mascot, mascotMood, type Mood } from './Mascot';
-import { GAME_MIN_WORDS, GAMES, recordLine } from './Games';
+import { GAME_MIN_WORDS, GAMES, MIN_WORDS, recordLine } from './Games';
 
 interface Props {
   onTab: (t: Tab) => void;
@@ -206,10 +206,10 @@ export function Home({ onTab, onLearn, onOpenText, onChest, onAddKey, onGame }: 
           </div>
           <div className="games-grid">
             {(Object.keys(GAMES) as GameId[]).map((id) => (
-              <button key={id} className={`game-tile ${id === 'boss' && bossWaiting ? 'boss-ready' : ''}`} onClick={() => onGame(id)}>
-                <span className="ge">{GAMES[id].emoji}</span>
+              <button key={id} className={`game-tile ${id === 'boss' && bossWaiting ? 'boss-ready' : ''} ${gameWords < MIN_WORDS[id] ? 'locked' : ''}`} onClick={() => onGame(id)}>
+                <span className="ge">{gameWords < MIN_WORDS[id] ? '🔒' : GAMES[id].emoji}</span>
                 <b>{GAMES[id].title}</b>
-                <small>{recordLine(id)}</small>
+                <small>{gameWords < MIN_WORDS[id] ? `нужно ${MIN_WORDS[id]} слов · есть ${gameWords}` : recordLine(id)}</small>
               </button>
             ))}
           </div>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { addXp, getData, saveGameRecord, todayKey, unlockedWords, winBoss, type GameId, type Word } from '../lib/store';
+import { addXp, getData, saveGameRecord, saveMedal, takeFirstGameOfDay, todayKey, unlockedWords, winBoss, type GameId, type GameRecords, type Word } from '../lib/store';
 import { fullGerman, shortTranslation, shuffle } from '../lib/feed';
 import { levelOf } from '../lib/gamify';
 import { sfx } from '../lib/sfx';
@@ -8,26 +8,47 @@ import { Confetti } from './SpecialCards';
 import { LevelUpScreen } from './Rewards';
 import { Mascot, PBar } from './ui';
 
-// Mini-games are play on top of learning: they give XP but never touch the FSRS schedule or the daily goal
+// Mini-games are play on top of learning: they give XP but never touch the FSRS schedule or the daily goal.
+// XP comes from unique words, medals and records, so looping a small vocabulary can't farm it.
 export const GAME_MIN_WORDS = 6;
+export const MIN_WORDS: Record<GameId, number> = { speed: GAME_MIN_WORDS, survival: 20, pairs: GAME_MIN_WORDS, boss: GAME_MIN_WORDS };
 const SPEED_MS = 60_000;
 const SPEED_PENALTY_MS = 2000;
 const LIVES = 3;
 const PAIRS_ROUNDS = 3;
 const PAIRS_PER_ROUND = 6;
 const PAIRS_PENALTY_MS = 3000;
+const PAIRS_XP = 30;
 const BOSS_SIZE = 8;
 const BOSS_XP = 150;
 const BOSS_GEMS = 30;
 const RECORD_XP = 50;
-const XP_PER_HIT = 3;
+const XP_PER_WORD = 3;
 const SHOW_WRONG_MS = 900;
 
+// Medal thresholds: answers for speed/survival, milliseconds (lower is better) for pairs
+const MEDALS: Record<keyof GameRecords, [number, number, number]> = {
+  speed: [10, 20, 30],
+  survival: [10, 25, 50],
+  pairs: [60_000, 40_000, 25_000],
+};
+const MEDAL_XP = [20, 50, 100];
+const MEDAL_ICON = ['', '🥉', '🥈', '🥇'];
+const MEDAL_NAME = ['', 'Бронза', 'Серебро', 'Золото'];
+
+const medalFor = (game: keyof GameRecords, value: number) => {
+  const t = MEDALS[game];
+  const reached = game === 'pairs' ? t.filter((ms) => value > 0 && value <= ms) : t.filter((n) => value >= n);
+  return reached.length;
+};
+/** XP for every medal level reached in one run. */
+const medalXp = (medal: number) => MEDAL_XP.slice(0, medal).reduce((a, b) => a + b, 0);
+
 export const GAMES: Record<GameId, { emoji: string; title: string; rules: string }> = {
-  speed: { emoji: '⚡', title: 'Скорость', rules: '60 секунд: выбирай перевод как можно быстрее. Ошибка отнимает 2 секунды.' },
-  survival: { emoji: '❤️', title: 'Выживание', rules: '3 жизни, вопросы без конца, и они становятся сложнее. Сколько продержишься?' },
-  pairs: { emoji: '🧩', title: 'Пары', rules: 'Соедини 6 слов с переводами. 3 раунда на время, ошибка +3 секунды.' },
-  boss: { emoji: '👹', title: 'Босс', rules: 'Der Fehlerteufel собран из слов, где ты чаще ошибаешься. Бей его верными ответами — у тебя 3 сердца.' },
+  speed: { emoji: '⚡', title: 'Скорость', rules: '60 секунд: выбирай перевод как можно быстрее. Ошибка отнимает 2 секунды. Медали: 10 · 20 · 30.' },
+  survival: { emoji: '❤️', title: 'Выживание', rules: '3 жизни, вопросы без конца. Слова, которые уже были, возвращаются сложнее. Медали: 10 · 25 · 50.' },
+  pairs: { emoji: '🧩', title: 'Пары', rules: 'Соедини 6 слов с переводами. 3 раунда на время, ошибка +3 секунды. Медали: 60 · 40 · 25 с.' },
+  boss: { emoji: '👹', title: 'Босс', rules: 'Der Fehlerteufel собран из слов, где ты чаще ошибаешься. Бей его верными ответами — у тебя 3 сердца. Один босс в день.' },
 };
 
 type Kind = 'choose' | 'article' | 'listen';
@@ -55,21 +76,68 @@ const pickWord = (pool: Word[], last?: Word) => {
   return others[Math.floor(Math.random() * others.length)] ?? pool[0];
 };
 
-/** XP plus the level-up screen when it crosses a level. */
-function useGain() {
+const pickOne = <T,>(arr: T[]) => arr[Math.floor(Math.random() * arr.length)];
+
+/** Pays out a run: doubled for the first game of the day, with the level-up screen when a level is crossed. */
+function usePayout() {
   const [levelUp, setLevelUp] = useState<number | null>(null);
-  const gain = (amount: number) => {
+  const pay = (amount: number) => {
+    const first = takeFirstGameOfDay();
     const before = levelOf(getData().stats.xp).level;
-    const got = addXp(amount);
+    const xp = addXp(first ? amount * 2 : amount);
     const after = levelOf(getData().stats.xp).level;
     if (after > before) {
       sfx.levelUp();
       setLevelUp(after);
     }
-    return got;
+    return { xp, first };
   };
   const screen = levelUp !== null ? <LevelUpScreen level={levelUp} onDone={() => setLevelUp(null)} /> : null;
-  return { gain, screen };
+  return { pay, screen };
+}
+
+/** A short banner over the playing field: medals and records reached mid-run. */
+function useToast() {
+  const [toast, setToast] = useState<{ text: string; n: number } | null>(null);
+  const show = (text: string) => setToast((t) => ({ text, n: (t?.n ?? 0) + 1 }));
+  const node = toast ? (
+    <div key={toast.n} className="game-toast">
+      {toast.text}
+    </div>
+  ) : null;
+  return { show, node };
+}
+
+/**
+ * Tracks one scored run (speed, survival): unique words for XP, medals and the record as they are reached.
+ * `old` is the record before this run, so the chase line can say how far it is.
+ */
+function useRun(game: 'speed' | 'survival', toast: (t: string) => void) {
+  const [old] = useState(() => getData().stats.records[game]);
+  const words = useRef(new Set<string>());
+  const medal = useRef(0);
+  const hit = (w: Word, score: number) => {
+    words.current.add(w.id);
+    const m = medalFor(game, score);
+    if (m > medal.current) {
+      medal.current = m;
+      sfx.chest();
+      toast(`${MEDAL_ICON[m]} ${MEDAL_NAME[m]}! +${MEDAL_XP[m - 1]} XP`);
+    } else if (old > 0 && score === old + 1) {
+      sfx.crit();
+      toast('🏆 Новый рекорд!');
+    }
+  };
+  const chase = (score: number) =>
+    old > 0 ? <span className={`pill record-chase ${score > old ? 'beaten' : ''}`}>{score > old ? '🏆 Рекорд!' : `🏆 ${old} · ещё ${old - score + 1}`}</span> : null;
+  /** Saves the record and medal; returns what the run earned before the daily double. */
+  const finish = (score: number) => {
+    const record = saveGameRecord(game, score);
+    saveMedal(game, medal.current);
+    const base = words.current.size * XP_PER_WORD + medalXp(medal.current) + (record ? RECORD_XP : 0);
+    return { base, record, medal: medal.current, unique: words.current.size };
+  };
+  return { hit, chase, finish };
 }
 
 const fmtTime = (ms: number) => `${(ms / 1000).toFixed(1)} с`;
@@ -77,15 +145,17 @@ const fmtTime = (ms: number) => `${(ms / 1000).toFixed(1)} с`;
 export function recordLine(id: GameId): string {
   const d = getData();
   const r = d.stats.records;
-  if (id === 'boss') return d.stats.bossWonDay === todayKey() ? 'Побеждён ✓' : 'Ждёт тебя';
-  if (id === 'pairs') return r.pairs ? `Рекорд ${fmtTime(r.pairs)}` : 'Рекорда нет';
-  return r[id] ? `Рекорд ${r[id]}` : 'Рекорда нет';
+  if (id === 'boss') return d.stats.bossWonDay === todayKey() ? 'Побеждён ✓ · завтра новый' : 'Ждёт тебя';
+  const medal = MEDAL_ICON[d.stats.medals[id]];
+  const rec = id === 'pairs' ? (r.pairs ? `Рекорд ${fmtTime(r.pairs)}` : '') : r[id] ? `Рекорд ${r[id]}` : '';
+  return rec ? `${medal ? `${medal} ` : ''}${rec}` : 'Рекорда нет';
 }
 
 export function Game({ id, onClose }: { id: GameId; onClose: () => void }) {
   const [run, setRun] = useState(0); // 0 = intro, then one number per attempt
   const pool = useMemo(() => unlockedWords(getData()), []);
   const g = GAMES[id];
+  const bossDone = id === 'boss' && getData().stats.bossWonDay === todayKey();
 
   if (!run)
     return (
@@ -97,8 +167,13 @@ export function Game({ id, onClose }: { id: GameId; onClose: () => void }) {
             {g.rules}
           </p>
           <div className="pill review-pill">{recordLine(id)}</div>
-          {pool.length < GAME_MIN_WORDS ? (
-            <p className="muted">Нужно минимум {GAME_MIN_WORDS} слов в словаре — сейчас {pool.length}.</p>
+          {getData().stats.gamesDay !== todayKey() && <p className="small" style={{ fontWeight: 700 }}>⚡ Первая игра дня — XP ×2</p>}
+          {pool.length < MIN_WORDS[id] ? (
+            <p className="muted">
+              Нужно минимум {MIN_WORDS[id]} слов в словаре — сейчас {pool.length}.
+            </p>
+          ) : bossDone ? (
+            <p className="muted">Сегодня босс уже повержен. Новый появится завтра.</p>
           ) : (
             <button className="chunky c-peach" onClick={() => setRun(1)}>
               Старт
@@ -131,7 +206,7 @@ interface GameProps {
 }
 
 /** Feed-like frame: close button, a status line, the playing field. */
-function Shell({ onClose, status, children }: { onClose: () => void; status: ReactNode; children: ReactNode }) {
+function Shell({ onClose, status, toast, children }: { onClose: () => void; status: ReactNode; toast?: ReactNode; children: ReactNode }) {
   return (
     <div className="feed game">
       <header className="feed-top">
@@ -141,7 +216,10 @@ function Shell({ onClose, status, children }: { onClose: () => void; status: Rea
         {status}
       </header>
       <div className="feed-stage">
-        <div className="feed-card">{children}</div>
+        <div className="feed-card">
+          {toast}
+          {children}
+        </div>
       </div>
     </div>
   );
@@ -180,10 +258,18 @@ function QuestionView({ q, picked, onPick }: { q: Question; picked: number | nul
   );
 }
 
-/** Result screen shared by every game. */
-function GameOver(props: { title: string; big: string; sub: string; record: boolean; win?: boolean; xp: number; gems?: number; onAgain: () => void; onClose: () => void; extra?: ReactNode }) {
-  const { title, big, sub, record, win, xp, gems, onAgain, onClose, extra } = props;
-  const happy = record || win;
+interface Outcome {
+  xp: number;
+  first: boolean;
+  record?: boolean;
+  medal?: number;
+  unique?: number;
+}
+
+/** Result screen shared by every game; without `onAgain` there is no replay (the boss after a win). */
+function GameOver(props: { title: string; big: string; sub: string; out: Outcome; win?: boolean; gems?: number; onAgain?: () => void; onClose: () => void }) {
+  const { title, big, sub, out, win, gems, onAgain, onClose } = props;
+  const happy = out.record || win || !!out.medal;
   return (
     <div className="overlay game-over">
       {happy && <Confetti count={140} />}
@@ -194,12 +280,26 @@ function GameOver(props: { title: string; big: string; sub: string; record: bool
         <div className="muted" style={{ fontWeight: 600 }}>
           {sub}
         </div>
-        {record && <div className="pill golden-pill record-pill">🏆 Новый рекорд! +{RECORD_XP} XP</div>}
+        <div className="game-badges">
+          {out.record && <span className="pill golden-pill record-pill">🏆 Новый рекорд! +{RECORD_XP} XP</span>}
+          {!!out.medal && (
+            <span className="pill record-pill medal-pill">
+              {MEDAL_ICON[out.medal]} {MEDAL_NAME[out.medal]} · +{medalXp(out.medal)} XP
+            </span>
+          )}
+          {out.first && <span className="pill record-pill first-pill">⚡ Первая игра дня · XP ×2</span>}
+        </div>
         <div className="stat-tiles">
           <div className="c-lav">
-            <b>+{xp}</b>
+            <b>+{out.xp}</b>
             <span>XP</span>
           </div>
+          {out.unique !== undefined && (
+            <div className="c-mint">
+              <b>{out.unique}</b>
+              <span>разных слов</span>
+            </div>
+          )}
           {!!gems && (
             <div className="c-sky">
               <b>+{gems}</b>
@@ -207,13 +307,20 @@ function GameOver(props: { title: string; big: string; sub: string; record: bool
             </div>
           )}
         </div>
-        {extra}
-        <button className="chunky c-peach" onClick={onAgain}>
-          Ещё раз
-        </button>
-        <button className="link" onClick={onClose}>
-          Выйти
-        </button>
+        {onAgain ? (
+          <button className="chunky c-peach" onClick={onAgain}>
+            Ещё раз
+          </button>
+        ) : (
+          <button className="chunky c-peach" onClick={onClose}>
+            Готово
+          </button>
+        )}
+        {onAgain && (
+          <button className="link" onClick={onClose}>
+            Выйти
+          </button>
+        )}
       </div>
     </div>
   );
@@ -243,8 +350,10 @@ function SpeedGame({ pool, onAgain, onClose }: GameProps) {
   const [left, setLeft] = useState(SPEED_MS);
   const [score, setScore] = useState(0);
   const [streak, setStreak] = useState(0);
-  const [over, setOver] = useState<{ xp: number; record: boolean } | null>(null);
-  const { gain, screen } = useGain();
+  const [over, setOver] = useState<Outcome | null>(null);
+  const { pay, screen } = usePayout();
+  const toast = useToast();
+  const run = useRun('speed', toast.show);
   const lastTick = useRef(99);
 
   useEffect(() => {
@@ -262,10 +371,9 @@ function SpeedGame({ pool, onAgain, onClose }: GameProps) {
 
   useEffect(() => {
     if (left > 0 || over) return;
-    const record = saveGameRecord('speed', score);
+    const r = run.finish(score);
     sfx.fanfare();
-    if (record) sfx.crit();
-    setOver({ xp: gain(score * XP_PER_HIT + (record ? RECORD_XP : 0)), record });
+    setOver({ ...pay(r.base), record: r.record, medal: r.medal, unique: r.unique });
   }, [left]);
 
   const pick = (i: number) => {
@@ -275,6 +383,7 @@ function SpeedGame({ pool, onAgain, onClose }: GameProps) {
       setScore(score + 1);
       setStreak(streak + 1);
       sfx.correct(streak + 1);
+      run.hit(q.w, score + 1);
       advance(250);
     } else {
       setStreak(0);
@@ -287,13 +396,14 @@ function SpeedGame({ pool, onAgain, onClose }: GameProps) {
   if (over)
     return (
       <>
-        <GameOver title="Время вышло!" big={String(score)} sub={`верных ответов · рекорд ${getData().stats.records.speed}`} record={over.record} xp={over.xp} onAgain={onAgain} onClose={onClose} />
+        <GameOver title="Время вышло!" big={String(score)} sub={`верных ответов · рекорд ${getData().stats.records.speed}`} out={over} onAgain={onAgain} onClose={onClose} />
         {screen}
       </>
     );
   return (
     <Shell
       onClose={onClose}
+      toast={toast.node}
       status={
         <>
           <PBar value={left / SPEED_MS} accent={left < 10_000 ? 'pink' : 'butter'} h={14} />
@@ -302,6 +412,7 @@ function SpeedGame({ pool, onAgain, onClose }: GameProps) {
         </>
       }
     >
+      {run.chase(score)}
       <QuestionView q={q} picked={picked} onPick={pick} />
     </Shell>
   );
@@ -322,19 +433,28 @@ function Hearts({ n }: { n: number }) {
 function SurvivalGame({ pool, onAgain, onClose }: GameProps) {
   const last = useRef<Word | undefined>(undefined);
   const scoreRef = useRef(0);
-  // Harder formats join as the run goes on
+  const seen = useRef(new Set<string>());
+  const listening = getData().settings.listening;
+  // Harder formats join as the run goes on, and a word seen before comes back in a harder one
   const nextQ = () => {
     const w = pickWord(pool, last.current);
     last.current = w;
     const s = scoreRef.current;
-    const kinds: Kind[] = s < 5 ? ['choose'] : s < 12 ? ['choose', 'article'] : getData().settings.listening ? ['choose', 'article', 'listen'] : ['choose', 'article'];
-    return makeQuestion(pool, w, kinds[Math.floor(Math.random() * kinds.length)]);
+    let kinds: Kind[] = s < 5 ? ['choose'] : s < 12 ? ['choose', 'article'] : listening ? ['choose', 'article', 'listen'] : ['choose', 'article'];
+    if (seen.current.has(w.id)) {
+      const hard: Kind[] = [...(w.article ? ['article' as const] : []), ...(listening ? ['listen' as const] : [])];
+      if (hard.length) kinds = hard;
+    }
+    seen.current.add(w.id);
+    return makeQuestion(pool, w, pickOne(kinds));
   };
   const { q, picked, setPicked, advance } = useQuiz(nextQ);
   const [lives, setLives] = useState(LIVES);
   const [score, setScore] = useState(0);
-  const [over, setOver] = useState<{ xp: number; record: boolean } | null>(null);
-  const { gain, screen } = useGain();
+  const [over, setOver] = useState<Outcome | null>(null);
+  const { pay, screen } = usePayout();
+  const toast = useToast();
+  const run = useRun('survival', toast.show);
 
   const pick = (i: number) => {
     if (picked !== null || over) return;
@@ -343,6 +463,7 @@ function SurvivalGame({ pool, onAgain, onClose }: GameProps) {
       scoreRef.current = score + 1;
       setScore(score + 1);
       sfx.correct(Math.min(score + 1, 8));
+      run.hit(q.w, score + 1);
       advance(350);
       return;
     }
@@ -355,22 +476,23 @@ function SurvivalGame({ pool, onAgain, onClose }: GameProps) {
     }
     sfx.comboBreak();
     setTimeout(() => {
-      const record = saveGameRecord('survival', score);
-      if (record) sfx.fanfare();
-      setOver({ xp: gain(score * XP_PER_HIT + (record ? RECORD_XP : 0)), record });
+      const r = run.finish(score);
+      if (r.record || r.medal) sfx.fanfare();
+      setOver({ ...pay(r.base), record: r.record, medal: r.medal, unique: r.unique });
     }, SHOW_WRONG_MS);
   };
 
   if (over)
     return (
       <>
-        <GameOver title="Жизни кончились" big={String(score)} sub={`вопросов продержался · рекорд ${getData().stats.records.survival}`} record={over.record} xp={over.xp} onAgain={onAgain} onClose={onClose} />
+        <GameOver title="Жизни кончились" big={String(score)} sub={`вопросов продержался · рекорд ${getData().stats.records.survival}`} out={over} onAgain={onAgain} onClose={onClose} />
         {screen}
       </>
     );
   return (
     <Shell
       onClose={onClose}
+      toast={toast.node}
       status={
         <>
           <Hearts n={lives} />
@@ -379,6 +501,7 @@ function SurvivalGame({ pool, onAgain, onClose }: GameProps) {
         </>
       }
     >
+      {run.chase(score)}
       <QuestionView q={q} picked={picked} onPick={pick} />
     </Shell>
   );
@@ -408,8 +531,9 @@ function PairsGame({ pool, onAgain, onClose }: GameProps) {
   const start = useRef(Date.now());
   const penalty = useRef(0);
   const [now, setNow] = useState(Date.now());
-  const [over, setOver] = useState<{ ms: number; xp: number; record: boolean } | null>(null);
-  const { gain, screen } = useGain();
+  const [over, setOver] = useState<(Outcome & { ms: number }) | null>(null);
+  const { pay, screen } = usePayout();
+  const [old] = useState(() => getData().stats.records.pairs);
   const matched = useRef(0);
 
   useEffect(() => {
@@ -418,7 +542,7 @@ function PairsGame({ pool, onAgain, onClose }: GameProps) {
     return () => clearInterval(t);
   }, [over]);
 
-  const elapsed = (over?.ms ?? now - start.current) + (over ? 0 : penalty.current);
+  const elapsed = now - start.current + penalty.current;
 
   const tap = (side: 'de' | 'ru', t: Tile) => {
     if (done.has(t.id) || over) return;
@@ -444,8 +568,10 @@ function PairsGame({ pool, onAgain, onClose }: GameProps) {
       }
       const ms = Date.now() - start.current + penalty.current;
       const record = saveGameRecord('pairs', ms);
+      const medal = medalFor('pairs', ms);
+      saveMedal('pairs', medal);
       sfx.fanfare();
-      setOver({ ms, xp: gain(30 + (record ? RECORD_XP : 0)), record });
+      setOver({ ms, ...pay(PAIRS_XP + medalXp(medal) + (record ? RECORD_XP : 0)), record, medal });
       return;
     }
     penalty.current += PAIRS_PENALTY_MS;
@@ -458,7 +584,7 @@ function PairsGame({ pool, onAgain, onClose }: GameProps) {
   if (over)
     return (
       <>
-        <GameOver title="Все пары собраны!" big={fmtTime(over.ms)} sub={`3 раунда · рекорд ${fmtTime(getData().stats.records.pairs)}`} record={over.record} xp={over.xp} onAgain={onAgain} onClose={onClose} />
+        <GameOver title="Все пары собраны!" big={fmtTime(over.ms)} sub={`3 раунда · рекорд ${fmtTime(getData().stats.records.pairs)}`} out={over} onAgain={onAgain} onClose={onClose} />
         {screen}
       </>
     );
@@ -483,6 +609,7 @@ function PairsGame({ pool, onAgain, onClose }: GameProps) {
         </>
       }
     >
+      {old > 0 && <span className={`pill record-chase ${elapsed > old ? 'late' : ''}`}>🏆 рекорд {fmtTime(old)}</span>}
       <span className="feed-label">
         Раунд {round} из {PAIRS_ROUNDS} · соедини пары
       </span>
@@ -506,14 +633,13 @@ function BossGame({ pool, onAgain, onClose }: GameProps) {
   // Every boss word must be answered once; a missed one goes back into the queue
   const queue = useRef(shuffle(words));
   const kinds: Kind[] = getData().settings.listening ? ['choose', 'article', 'listen'] : ['choose', 'article'];
-  const nextQ = () => makeQuestion(pool, queue.current[0], kinds[Math.floor(Math.random() * kinds.length)]);
+  const nextQ = () => makeQuestion(pool, queue.current[0], pickOne(kinds));
   const { q, picked, setPicked, advance } = useQuiz(nextQ);
   const [lives, setLives] = useState(LIVES);
   const [hits, setHits] = useState(0);
   const [shake, setShake] = useState(0);
-  const [over, setOver] = useState<{ win: boolean; xp: number; gems: number } | null>(null);
-  const { gain, screen } = useGain();
-  const [alreadyWon] = useState(() => getData().stats.bossWonDay === todayKey()); // as of this fight's start
+  const [over, setOver] = useState<(Outcome & { win: boolean; gems: number }) | null>(null);
+  const { pay, screen } = usePayout();
 
   const pick = (i: number) => {
     if (picked !== null || over) return;
@@ -525,11 +651,9 @@ function BossGame({ pool, onAgain, onClose }: GameProps) {
       setShake((n) => n + 1);
       sfx.correct(Math.min(h, 8));
       if (h < hp) return void advance(450);
-      // A repeat win on the same day pays only the hits, so the big reward stays daily
-      const gems = alreadyWon ? 0 : BOSS_GEMS;
-      if (!alreadyWon) winBoss(gems);
+      winBoss(BOSS_GEMS);
       sfx.fanfare();
-      setTimeout(() => setOver({ win: true, xp: gain((alreadyWon ? 0 : BOSS_XP) + h * XP_PER_HIT), gems }), 500);
+      setTimeout(() => setOver({ ...pay(BOSS_XP + h * XP_PER_WORD), win: true, gems: BOSS_GEMS }), 500);
       return;
     }
     queue.current.push(w);
@@ -541,7 +665,7 @@ function BossGame({ pool, onAgain, onClose }: GameProps) {
       return;
     }
     sfx.comboBreak();
-    setTimeout(() => setOver({ win: false, xp: gain(hits * XP_PER_HIT), gems: 0 }), SHOW_WRONG_MS);
+    setTimeout(() => setOver({ ...pay(hits * XP_PER_WORD), win: false, gems: 0 }), SHOW_WRONG_MS);
   };
 
   if (over)
@@ -550,12 +674,11 @@ function BossGame({ pool, onAgain, onClose }: GameProps) {
         <GameOver
           title={over.win ? 'Босс повержен!' : 'Босс устоял'}
           big={over.win ? '👹💥' : '👹'}
-          sub={over.win ? (alreadyWon ? 'Сегодняшняя награда уже получена — но победа есть победа' : 'Слова, где ты ошибался, теперь твои') : `Осталось ${hp - hits} из ${hp} здоровья — попробуй ещё раз`}
-          record={false}
+          sub={over.win ? 'Слова, где ты ошибался, теперь твои. Новый босс — завтра.' : `Осталось ${hp - hits} из ${hp} здоровья — попробуй ещё раз`}
+          out={over}
           win={over.win}
-          xp={over.xp}
           gems={over.gems}
-          onAgain={onAgain}
+          onAgain={over.win ? undefined : onAgain}
           onClose={onClose}
         />
         {screen}

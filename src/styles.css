@@ -2855,3 +2855,73 @@ button.link.danger {
   width: 100%;
   margin-top: 4px;
 }
+.game-tile.locked {
+  opacity: 0.6;
+}
+.record-chase {
+  --c: var(--card2);
+  color: var(--ink);
+  height: 26px;
+  font-size: 12px;
+  align-self: center;
+}
+.record-chase.beaten {
+  --c: linear-gradient(90deg, #f7d774, #ffe9a8, #f7d774);
+  background: var(--c);
+  background-size: 200% 100%;
+  color: #4a3510;
+  animation: pop 0.4s ease, shimmer 2s linear infinite;
+}
+.record-chase.late {
+  opacity: 0.55;
+}
+.game-toast {
+  position: absolute;
+  top: 18%;
+  left: 50%;
+  z-index: 6;
+  padding: 10px 20px;
+  border-radius: 999px;
+  background: var(--butter);
+  color: var(--onP);
+  box-shadow: 0 5px 0 color-mix(in oklch, var(--butter) 72%, black), 0 0 40px var(--butter);
+  font: 800 18px var(--display);
+  white-space: nowrap;
+  pointer-events: none;
+  animation: toast-pop 1.6s ease forwards;
+}
+@keyframes toast-pop {
+  0% {
+    transform: translate(-50%, 10px) scale(0.6);
+    opacity: 0;
+  }
+  15% {
+    transform: translate(-50%, 0) scale(1.1);
+    opacity: 1;
+  }
+  25%,
+  80% {
+    transform: translate(-50%, 0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -30px) scale(0.9);
+    opacity: 0;
+  }
+}
+.game-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.game-badges .record-pill {
+  margin-top: 8px;
+}
+.medal-pill {
+  --c: var(--peach);
+}
+.first-pill {
+  --c: var(--sky);
+}

@@ -103,7 +103,9 @@ export interface Stats extends Rec {
   chestDay: string; // day the daily chest was claimed
   boostUntil: number; // epoch ms until which XP is doubled
   records: GameRecords;
+  medals: GameRecords; // best medal per game: 0 none, 1 bronze, 2 silver, 3 gold
   bossWonDay: string; // day the daily boss was beaten
+  gamesDay: string; // day the first mini-game was played (it pays double)
 }
 
 export type GameId = 'speed' | 'survival' | 'pairs' | 'boss';
@@ -144,7 +146,7 @@ export const emptyData = (): AppData => ({
   forms: {},
   settings: { geminiKey: '', geminiModel: '', newPerDay: DEFAULT_NEW_PER_DAY, sound: true, listening: true, readerFont: 'onest', readerSize: 19, readerSpacing: 'normal', theme: 'time', learnMode: 'all', mascot: '', updatedAt: 0 },
   progress: { day: '', newIntroduced: 0, reviewed: 0, updatedAt: 0 },
-  stats: { xp: 0, streak: 0, lastGoalDay: '', freezeUsedDay: '', milestones: [], gems: 0, freezes: 0, chestDay: '', boostUntil: 0, records: { speed: 0, survival: 0, pairs: 0 }, bossWonDay: '', updatedAt: 0 },
+  stats: { xp: 0, streak: 0, lastGoalDay: '', freezeUsedDay: '', milestones: [], gems: 0, freezes: 0, chestDay: '', boostUntil: 0, records: { speed: 0, survival: 0, pairs: 0 }, medals: { speed: 0, survival: 0, pairs: 0 }, bossWonDay: '', gamesDay: '', updatedAt: 0 },
 });
 
 const dayShift = (days: number) => {
@@ -203,7 +205,7 @@ function mergeMap<T extends Rec>(a: Record<string, T>, b: Record<string, T>): Re
 const newer = <T extends Rec>(a: T | undefined, b: T | undefined, fallback: T): T =>
   !a ? (b ?? fallback) : !b ? a : b.updatedAt > a.updatedAt ? b : a;
 
-const mergeStats = (base: Stats, s: Stats): Stats => ({ ...base, ...s, records: { ...base.records, ...s.records } });
+const mergeStats = (base: Stats, s: Stats): Stats => ({ ...base, ...s, records: { ...base.records, ...s.records }, medals: { ...base.medals, ...s.medals } });
 
 // Tolerates data written by older app versions (missing fields)
 export function mergeData(a: AppData, b: AppData): AppData {
@@ -459,6 +461,19 @@ export function saveGameRecord(game: keyof GameRecords, value: number): boolean 
   const better = game === 'pairs' ? value > 0 && (!old || value < old) : value > old;
   if (better) update((d) => ({ ...d, stats: { ...d.stats, records: { ...d.stats.records, [game]: value }, updatedAt: now() } }));
   return better;
+}
+
+/** Keeps the best medal reached in a game. */
+export function saveMedal(game: keyof GameRecords, medal: number) {
+  if (medal <= data.stats.medals[game]) return;
+  update((d) => ({ ...d, stats: { ...d.stats, medals: { ...d.stats.medals, [game]: medal }, updatedAt: now() } }));
+}
+
+/** True for the first mini-game of the day (and marks the day as played). */
+export function takeFirstGameOfDay(): boolean {
+  if (data.stats.gamesDay === todayKey()) return false;
+  update((d) => ({ ...d, stats: { ...d.stats, gamesDay: todayKey(), updatedAt: now() } }));
+  return true;
 }
 
 export function winBoss(gems: number) {
