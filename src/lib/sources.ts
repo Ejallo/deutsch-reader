@@ -162,13 +162,14 @@ export interface NewsItem {
 // Lists are cached for a while so browsing the shelf stays far below the hourly limit
 const newsCache = new Map<string, { at: number; items: NewsItem[] }>();
 
-export async function tagesschauNews(ressort: string): Promise<NewsItem[]> {
-  const hit = newsCache.get(ressort);
+async function newsList(cacheKey: string, url: string, field: 'news' | 'searchResults'): Promise<NewsItem[]> {
+  const hit = newsCache.get(cacheKey);
   if (hit && Date.now() - hit.at < LIST_TTL) return hit.items;
-  const r = await fetch(`${TAGESSCHAU}/news/${ressort ? `?ressort=${ressort}` : ''}`);
+  const r = await fetch(url);
   if (!r.ok) throw new Error(`tagesschau не отвечает (ошибка ${r.status})`);
   const j = await r.json();
-  const items: NewsItem[] = (j.news ?? [])
+  // Videos have no text to read
+  const items: NewsItem[] = (j[field] ?? [])
     .filter((n: { type?: string; details?: string }) => n.type === 'story' && n.details)
     .map((n: { title: string; topline?: string; date: string; details: string }) => ({
       title: n.title,
@@ -176,9 +177,14 @@ export async function tagesschauNews(ressort: string): Promise<NewsItem[]> {
       date: new Date(n.date).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
       details: n.details,
     }));
-  newsCache.set(ressort, { at: Date.now(), items });
+  newsCache.set(cacheKey, { at: Date.now(), items });
   return items;
 }
+
+export const tagesschauNews = (ressort: string) => newsList(ressort, `${TAGESSCHAU}/news/${ressort ? `?ressort=${ressort}` : ''}`, 'news');
+
+export const tagesschauSearch = (term: string) =>
+  newsList(`q:${term.toLowerCase()}`, `${TAGESSCHAU}/search/?${new URLSearchParams({ searchText: term, pageSize: '30', resultPage: '0' })}`, 'searchResults');
 
 // Lines that are site furniture, not the story
 const NEWS_NOISE = /^(Mehr zum Thema|Dieses Thema im Programm|Über dieses Thema berichtet|Mit Informationen von|Von [^.!?]{3,80}$)/;

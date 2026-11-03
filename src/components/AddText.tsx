@@ -16,6 +16,7 @@ import {
   RESSORTS,
   tagesschauArticle,
   tagesschauNews,
+  tagesschauSearch,
   learningWordsByWeakness,
   MAX_WOVEN_WORDS,
   type FoundText,
@@ -368,20 +369,49 @@ function WikiShelf({ wiki, hint, placeholder, onSave }: SaveProps & { wiki: Wiki
 }
 
 function TagesschauShelf({ onSave }: SaveProps) {
-  const [ressort, setRessort] = useState('');
+  const [ressort, setRessort] = useState<string | null>(''); // null while showing search results
+  const [query, setQuery] = useState('');
   const [items, setItems] = useState<NewsItem[]>([]);
   const { busy, error, run } = useTask();
 
   useEffect(() => {
-    void run(async () => setItems(await tagesschauNews(ressort)));
+    if (ressort !== null) void run(async () => setItems(await tagesschauNews(ressort)));
   }, [ressort]);
+
+  const search = () => {
+    const q = query.trim();
+    if (!q) return;
+    setRessort(null);
+    void run(async () => {
+      const found = await tagesschauSearch(q);
+      setItems(found);
+      if (!found.length) throw new Error(`По запросу «${q}» статей не нашлось`);
+    });
+  };
 
   return (
     <>
       <p className="muted small">Свежие новости ARD, обновляются каждый час. Обычный газетный язык — сложнее Klexikon. Только для личного чтения.</p>
+      <form
+        className="search-row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          search();
+        }}
+      >
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Fußball, Wetter, Bahn…" />
+        <button type="submit">Найти</button>
+      </form>
       <div className="chips tight">
         {RESSORTS.map(([id, label]) => (
-          <button key={id || 'all'} className={ressort === id ? 'chip on' : 'chip'} onClick={() => setRessort(id)}>
+          <button
+            key={id || 'all'}
+            className={ressort === id ? 'chip on' : 'chip'}
+            onClick={() => {
+              setQuery('');
+              setRessort(id);
+            }}
+          >
             {label}
           </button>
         ))}
