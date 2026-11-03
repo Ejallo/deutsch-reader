@@ -25,7 +25,7 @@ export function LessonSummary({ stats, onChest, onContinue }: { stats: SessionSt
     <div className="overlay">
       <Confetti />
       <div className="overlay-inner">
-        <Mascot />
+        <Mascot mood="happy" />
         <div className="summary-title">Super gemacht!</div>
         <div className="muted" style={{ fontWeight: 600, marginTop: 6 }}>
           Цель дня выполнена · {todayProgress(d).reviewed} карточек{stats.wrong ? ` · ошибок: ${stats.wrong}` : ''}

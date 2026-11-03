@@ -9,7 +9,7 @@ export function MascotStep() {
   return (
     <div className="screen">
       <div style={{ textAlign: 'center', marginTop: 24 }}>
-        <Mascot id={pick} size={130} />
+        <Mascot id={pick} size={130} mood="happy" />
         <h1 style={{ marginTop: 14 }}>{m.de}</h1>
         <p className="muted">{m.ru} — будет учить немецкий вместе с тобой. Выбери персонажа, поменять можно в настройках.</p>
       </div>

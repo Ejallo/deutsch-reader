@@ -15,6 +15,7 @@ import { useApplyTheme } from './lib/theme';
 import { useData } from './lib/store';
 import { KeyStep } from './components/KeyStep';
 import { MascotStep } from './components/MascotStep';
+import { MascotGallery } from './components/Mascot';
 
 export type View =
   | { name: Tab }
@@ -53,6 +54,7 @@ export function App() {
   const learn = () => setView({ name: 'feed', from: tab });
   const openText = (id: string) => setView({ name: 'reader', id, from: tab });
 
+  if (location.search === '?mascots') return <MascotGallery />;
   if (setupDone === null) return null;
   if (!setupDone && sync.status === 'off') return <Setup onDone={finishSetup} />;
   if (!mascot && sync.status !== 'syncing' && view.name === 'home') return <MascotStep />;

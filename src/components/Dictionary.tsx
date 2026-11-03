@@ -5,7 +5,7 @@ import { AddChunkSheet } from './AddChunkSheet';
 import { fullGerman, shortTranslation } from '../lib/feed';
 import { speak } from '../lib/tts';
 import { TabBar, type Tab } from './TabBar';
-import { articleClass, StatStrip, TopBar } from './ui';
+import { articleClass, Mascot, StatStrip, TopBar } from './ui';
 
 interface Props {
   onTab: (t: Tab) => void;
@@ -180,6 +180,7 @@ function WordsBody() {
 
       {words.length === 0 ? (
         <div className="empty">
+          <Mascot size={96} mood="wait" />
           <p>Словарь пуст. Нажми на незнакомое слово в тексте и «+ В словарь» — или добавь слово вручную.</p>
         </div>
       ) : shown.length === 0 ? (
@@ -317,6 +318,7 @@ function ChunksBody() {
 
       {chunks.length === 0 ? (
         <div className="empty">
+          <Mascot size={96} mood="wait" />
           <p>Чанков пока нет. В тексте нажми на слово (или выдели фразу долгим нажатием) и «🧩 Учить чанком» — приложение соберёт готовое словосочетание с примерами. Или добавь чанк вручную.</p>
         </div>
       ) : shown.length === 0 ? (

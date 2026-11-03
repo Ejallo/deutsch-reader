@@ -350,7 +350,7 @@ function ResultSheet({ result, solution, meaning, combo, round, onNext }: { resu
     return (
       <div className="result-sheet c-mint">
         <div className="head">
-          <div className="mark">✓</div>
+          <Mascot size={84} mood="happy" />
           <div>
             <div className="ttl">Richtig!</div>
             <div className="sub">
@@ -367,9 +367,14 @@ function ResultSheet({ result, solution, meaning, combo, round, onNext }: { resu
   }
   return (
     <div className={`result-sheet ${result.answer === 'hard' ? 'c-butter' : 'c-pink'}`}>
-      <div className="ttl">Почти! 💪</div>
-      <div className="sub">
-        Правильно: <b>{solution}</b> — {meaning}{/[.!?…]$/.test(meaning) ? '' : '.'}{result.answer === 'again' ? ' Карточка вернётся через пару карточек.' : ''}
+      <div className="head">
+        <Mascot size={84} mood={result.answer === 'hard' ? 'wait' : 'sad'} />
+        <div>
+          <div className="ttl">{result.answer === 'hard' ? 'Почти! 💪' : 'Не совсем'}</div>
+          <div className="sub">
+            Правильно: <b>{solution}</b> — {meaning}{/[.!?…]$/.test(meaning) ? '' : '.'}{result.answer === 'again' ? ' Карточка вернётся через пару карточек.' : ''}
+          </div>
+        </div>
       </div>
       {roundLine && <div className="sub" style={{ fontWeight: 800, opacity: 1 }}>{roundLine}</div>}
       <button className="chunky c-card" onClick={onNext}>
@@ -668,7 +673,7 @@ function ChunkTilesCard({ e, tiles, result, onCheck }: { e: ChunkExample; tiles:
 function MoreCard({ left, onMore, onSkip }: { left: number; onMore: () => void; onSkip: () => void }) {
   return (
     <>
-      <Mascot size={110} />
+      <Mascot size={110} mood="happy" />
       <p className="feed-tr">Лимит новых на сегодня пройден</p>
       <p className="muted">
         Ждут ещё {left}. Можно взять ещё {Math.min(EXTRA_NEW_STEP, left)} или просто повторять уже знакомые.
@@ -686,7 +691,7 @@ function MoreCard({ left, onMore, onSkip }: { left: number; onMore: () => void; 
 function EmptyCard({ reason, mode, limit, onClose, onMore }: { reason: 'empty' | 'limit'; mode: LearnMode; limit: number; onClose: () => void; onMore: () => void }) {
   return (
     <div className="feed-card entering">
-      <Mascot size={110} />
+      <Mascot size={110} mood="wait" />
       {reason === 'empty' ? (
         <>
           <p className="feed-tr">{mode === 'chunks' ? 'Чанков пока нет' : mode === 'words' ? 'Слов пока нет' : 'Пока нечего учить'}</p>

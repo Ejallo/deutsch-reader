@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { liveTexts, statusOf, useData } from '../lib/store';
 import { uniqueForms } from '../lib/text';
-import { levelAccent, PBar, readProgress, StatStrip, textLevel, TopBar } from './ui';
+import { levelAccent, Mascot, PBar, readProgress, StatStrip, textLevel, TopBar } from './ui';
 import { TabBar, type Tab } from './TabBar';
 
 interface Props {
@@ -63,6 +63,7 @@ export function Library({ onOpen, onAdd, onLearn, onTab, onAddKey }: Props) {
 
       {texts.length === 0 ? (
         <div className="empty">
+          <Mascot size={96} mood="wait" />
           <p>Вставь, создай или найди первый немецкий текст.</p>
           <button className="chunky c-peach" onClick={onAdd}>
             + Новый текст

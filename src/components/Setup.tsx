@@ -43,7 +43,7 @@ export function Setup({ onDone, embedded }: Props) {
     <div className={embedded ? '' : 'screen'}>
       {!embedded && (
         <div style={{ textAlign: 'center', marginTop: 24 }}>
-          <Mascot size={110} />
+          <Mascot size={110} mood="happy" />
           <h1 style={{ marginTop: 18 }}>Deutsch Reader</h1>
           <p className="muted">Войди, чтобы словарь и прогресс были и на телефоне, и на компе — и не терялись.</p>
         </div>

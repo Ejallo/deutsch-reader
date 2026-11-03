@@ -1948,6 +1948,147 @@ button.link.danger {
   margin: 0 auto;
   overflow: visible;
 }
+.mascot .m-body {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
+.mascot .m-shadow,
+.mascot .m-eyes,
+.mascot .m-spark path {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+}
+/* happy: squash → stretch jump → squash landing → overshoot, then a short rest */
+.mascot.happy .m-body {
+  animation: m-jump 1.6s cubic-bezier(0.3, 0, 0.3, 1) infinite;
+}
+.mascot.happy .m-shadow {
+  animation: m-shadow 1.6s cubic-bezier(0.3, 0, 0.3, 1) infinite;
+}
+.mascot .m-spark path {
+  animation: m-spark 1.6s ease-out infinite;
+}
+.mascot .m-spark path:nth-child(2) { animation-delay: 0.2s; }
+.mascot .m-spark path:nth-child(3) { animation-delay: 0.4s; }
+.mascot .m-spark path:nth-child(4) { animation-delay: 0.6s; }
+.mascot.wait .m-body {
+  animation: m-sway 3.2s ease-in-out infinite;
+}
+.mascot.wait .m-eyes {
+  animation: m-blink 4s infinite;
+}
+@keyframes m-jump {
+  0% { transform: translateY(0) scale(1, 1); }
+  12% { transform: translateY(0) scale(1.12, 0.86); }
+  30% { transform: translateY(-20px) scale(0.9, 1.12); }
+  42% { transform: translateY(-24px) scale(1, 1) rotate(-4deg); }
+  56% { transform: translateY(0) scale(1.14, 0.84); }
+  66% { transform: translateY(-5px) scale(0.96, 1.05); }
+  76%, 100% { transform: translateY(0) scale(1, 1); }
+}
+@keyframes m-shadow {
+  0%, 12%, 56%, 100% { transform: scale(1); opacity: 0.08; }
+  42% { transform: scale(0.55); opacity: 0.04; }
+}
+@keyframes m-spark {
+  0%, 20% { transform: scale(0) rotate(0); opacity: 0; }
+  40% { transform: scale(1.2) rotate(45deg); opacity: 1; }
+  70%, 100% { transform: scale(0) rotate(90deg); opacity: 0; }
+}
+@keyframes m-sigh {
+  0%, 100% { transform: translateY(3px) scale(1.02, 0.94); }
+  30% { transform: translateY(0) scale(0.98, 1); }
+  60% { transform: translateY(5px) scale(1.07, 0.86) rotate(-2deg); }
+  66% { transform: translateY(5px) scale(1.07, 0.86) rotate(2deg); }
+  72% { transform: translateY(5px) scale(1.07, 0.86) rotate(-1deg); }
+  80% { transform: translateY(4px) scale(1.04, 0.9); }
+}
+@keyframes m-tear {
+  0% { transform: translateY(-2px) scale(0.4); opacity: 0; }
+  20% { transform: translateY(0) scale(1); opacity: 1; }
+  100% { transform: translateY(22px) scale(0.8, 1.2); opacity: 0; }
+}
+@keyframes m-blink {
+  0%, 90%, 100% { transform: scaleY(1); }
+  94% { transform: scaleY(0.1); }
+}
+/* sad: slumped, slow heavy sighs, a shiver at the bottom of each sigh, tears rolling down */
+.mascot.sad .m-body {
+  animation: m-sigh 3s ease-in-out infinite;
+}
+.mascot .m-tear {
+  transform-box: fill-box;
+  transform-origin: 50% 0;
+}
+.mascot.sad .m-tear {
+  animation: m-tear 1.6s ease-in infinite;
+}
+.mascot.sad .m-tear + .m-tear {
+  animation-delay: 0.8s;
+}
+.result-sheet .mascot {
+  margin: -34px -4px -6px -8px;
+  flex: none;
+}
+.mascot.sleep .m-body {
+  animation: m-breathe 4s ease-in-out infinite;
+}
+.mascot .m-zz text {
+  animation: m-z 3s ease-in-out infinite;
+}
+.mascot .m-zz text + text {
+  animation-delay: 1.5s;
+}
+@keyframes m-sway {
+  0%, 100% { transform: rotate(-2deg); }
+  50% { transform: rotate(2deg); }
+}
+@keyframes m-breathe {
+  0%, 100% { transform: scale(1, 1); }
+  50% { transform: scale(1.02, 0.97); }
+}
+@keyframes m-z {
+  0% { opacity: 0; transform: translateY(4px); }
+  40% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-8px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mascot .m-body,
+  .mascot .m-shadow,
+  .mascot .m-eyes,
+  .mascot .m-spark path,
+  .mascot .m-tear,
+  .mascot .m-zz text {
+    animation: none;
+  }
+}
+.pet {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 10px 16px 10px 8px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  text-align: left;
+  color: var(--ink);
+}
+.pet .mascot {
+  margin: 0;
+  flex: none;
+}
+.pet b {
+  display: block;
+  font: 700 16px/1.2 var(--display);
+}
+.pet span {
+  display: block;
+  margin-top: 3px;
+  font-size: 13px;
+  color: var(--sub);
+}
 .mascot-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

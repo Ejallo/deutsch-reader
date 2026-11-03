@@ -3,6 +3,7 @@ import { levelOf } from '../lib/gamify';
 import { lastOpenedText, levelAccent, PBar, Pill, readProgress, textLevel } from './ui';
 import { TabBar, waitingCards, type Tab } from './TabBar';
 import { SyncBadge } from './SyncBadge';
+import { Mascot, mascotMood, type Mood } from './Mascot';
 
 interface Props {
   onTab: (t: Tab) => void;
@@ -29,6 +30,28 @@ function thisWeek(): string[] {
     day.setDate(monday.getDate() + i);
     return todayKey(day);
   });
+}
+
+const PET_LINES: Record<Mood, (streak: number, left: number) => [string, string]> = {
+  happy: () => ['Super gemacht!', 'Цель дня выполнена — я доволен'],
+  wait: (_, left) => ['Lernen wir?', `Ещё ${left} карточек до цели дня`],
+  sad: (streak) => ['Ich vermisse dich…', streak > 0 ? 'Серия сгорит в полночь — давай позанимаемся' : 'Серия прервалась — начнём новую?'],
+  sleep: (_, left) => ['Zzz… Gute Nacht', left ? 'Сплю… но карточки меня разбудят' : 'Сегодня всё сделано, сплю'],
+};
+
+/** The tamagotchi with a line that matches its mood; tap to learn. */
+function PetCard({ streak, left, onLearn }: { streak: number; left: number; onLearn: () => void }) {
+  const mood = mascotMood(useData());
+  const [title, line] = PET_LINES[mood](streak, left);
+  return (
+    <button className="pet" onClick={onLearn}>
+      <Mascot size={78} mood={mood} />
+      <div>
+        <b>{title}</b>
+        <span>{line}</span>
+      </div>
+    </button>
+  );
 }
 
 export function Home({ onTab, onLearn, onOpenText, onChest, onAddKey }: Props) {
@@ -63,6 +86,8 @@ export function Home({ onTab, onLearn, onOpenText, onChest, onAddKey }: Props) {
           <Pill accent="sky">💎 {data.stats.gems}</Pill>
         </div>
       </div>
+
+      <PetCard streak={streak} left={left} onLearn={onLearn} />
 
       {!data.settings.geminiKey && (
         <button className="key-banner" onClick={onAddKey}>
