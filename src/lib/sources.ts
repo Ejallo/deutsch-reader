@@ -93,12 +93,11 @@ export interface Wiki {
   name: string;
   api: string;
   license: string; // shown as the text's source (attribution)
-  newestCategory?: string; // category whose members, newest first, are the latest articles
 }
 
 export const KLEXIKON: Wiki = { name: 'Klexikon', api: 'https://klexikon.zum.de/api.php', license: 'CC BY-SA' };
 export const MINIKLEXIKON: Wiki = { name: 'MiniKlexikon', api: 'https://miniklexikon.zum.de/api.php', license: 'CC BY-SA 4.0' };
-export const WIKINEWS: Wiki = { name: 'Wikinews', api: 'https://de.wikinews.org/w/api.php', license: 'CC BY 2.5', newestCategory: 'Kategorie:Veröffentlicht' };
+export const WIKINEWS: Wiki = { name: 'Wikinews', api: 'https://de.wikinews.org/w/api.php', license: 'CC BY 2.5' };
 
 async function wiki(w: Wiki, params: Record<string, string>) {
   const q = new URLSearchParams({ ...params, format: 'json', formatversion: '2', origin: '*' });
@@ -110,13 +109,6 @@ async function wiki(w: Wiki, params: Record<string, string>) {
 export async function wikiRandom(w: Wiki, n = 12): Promise<string[]> {
   const j = await wiki(w, { action: 'query', list: 'random', rnnamespace: '0', rnlimit: String(n) });
   return j.query.random.map((p: { title: string }) => p.title);
-}
-
-/** Latest articles by the time they entered the "published" category. */
-export async function wikiNewest(w: Wiki, n = 15): Promise<{ title: string; date: string }[]> {
-  if (!w.newestCategory) return [];
-  const j = await wiki(w, { action: 'query', list: 'categorymembers', cmtitle: w.newestCategory, cmsort: 'timestamp', cmdir: 'desc', cmnamespace: '0', cmlimit: String(n), cmprop: 'title|timestamp' });
-  return j.query.categorymembers.map((p: { title: string; timestamp: string }) => ({ title: p.title, date: new Date(p.timestamp).toLocaleDateString('ru-RU') }));
 }
 
 export async function wikiSearch(w: Wiki, term: string): Promise<string[]> {

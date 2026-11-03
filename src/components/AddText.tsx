@@ -10,7 +10,6 @@ import {
   MINIKLEXIKON,
   WIKINEWS,
   wikiArticle,
-  wikiNewest,
   wikiRandom,
   wikiSearch,
   readingMinutes,
@@ -293,7 +292,7 @@ const SHELVES: [Shelf, string][] = [
 const WIKI_SHELVES: Record<Exclude<Shelf, 'grimm'>, { wiki: Wiki; hint: string; placeholder: string }> = {
   mini: { wiki: MINIKLEXIKON, hint: 'Самые простые статьи: очень короткие предложения, базовые слова.', placeholder: 'Katze, Sonne, Schule…' },
   klexikon: { wiki: KLEXIKON, hint: 'Детская энциклопедия на простом немецком: короткие предложения, понятные слова.', placeholder: 'Hund, Berlin, Fußball…' },
-  news: { wiki: WIKINEWS, hint: 'Новостные заметки Wikinews: настоящий газетный язык. Новые статьи выходят редко, проект закрывается.', placeholder: 'Wahl, Fußball, Wetter…' },
+  news: { wiki: WIKINEWS, hint: 'Новостные заметки из архива Wikinews: настоящий газетный язык. Новых статей там почти не пишут.', placeholder: 'Wahl, Fußball, Wetter…' },
 };
 
 function LibraryTab({ onSave }: SaveProps) {
@@ -314,14 +313,12 @@ function LibraryTab({ onSave }: SaveProps) {
 
 function WikiShelf({ wiki, hint, placeholder, onSave }: SaveProps & { wiki: Wiki; hint: string; placeholder: string }) {
   const [query, setQuery] = useState('');
-  const [items, setItems] = useState<{ title: string; date?: string }[]>([]);
+  const [titles, setTitles] = useState<string[]>([]);
   const { busy, error, run } = useTask();
-  const setTitles = (titles: string[]) => setItems(titles.map((title) => ({ title })));
 
   const random = () => run(async () => setTitles(await wikiRandom(wiki)));
-  const newest = () => run(async () => setItems(await wikiNewest(wiki)));
   useEffect(() => {
-    void (wiki.newestCategory ? newest() : random());
+    void random();
   }, []);
 
   return (
@@ -337,24 +334,16 @@ function WikiShelf({ wiki, hint, placeholder, onSave }: SaveProps & { wiki: Wiki
         <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={placeholder} />
         <button type="submit">Найти</button>
       </form>
-      <div className="row">
-        {wiki.newestCategory && (
-          <button className="link" onClick={() => void newest()}>
-            Свежие
-          </button>
-        )}
-        <button className="link" onClick={() => void random()}>
-          Случайные статьи
-        </button>
-      </div>
+      <button className="link" onClick={() => void random()}>
+        Случайные статьи
+      </button>
       {error && <p className="error">{error}</p>}
       {busy && <p className="muted">Загружаю…</p>}
       <ul className="list">
-        {items.map(({ title: t, date }) => (
+        {titles.map((t) => (
           <li key={t}>
             <button className="list-item" disabled={busy} onClick={() => void run(async () => onSave(await wikiArticle(wiki, t)))}>
               <span className="list-title">{t}</span>
-              {date && <span className="muted small">{date}</span>}
             </button>
           </li>
         ))}
