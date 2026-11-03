@@ -1,9 +1,10 @@
-import { currentStreak, DAILY_GOAL, liveChunks, liveTexts, streakDays, todayKey, todayProgress, updateSettings, useData, xpBoostActive, type LearnMode } from '../lib/store';
+import { currentStreak, DAILY_GOAL, liveChunks, liveTexts, streakDays, todayKey, todayProgress, unlockedWords, updateSettings, useData, xpBoostActive, type GameId, type LearnMode } from '../lib/store';
 import { levelOf } from '../lib/gamify';
 import { lastOpenedText, levelAccent, PBar, Pill, readProgress, textLevel } from './ui';
 import { TabBar, waitingCards, type Tab } from './TabBar';
 import { SyncBadge } from './SyncBadge';
 import { Mascot, mascotMood, type Mood } from './Mascot';
+import { GAME_MIN_WORDS, GAMES, recordLine } from './Games';
 
 interface Props {
   onTab: (t: Tab) => void;
@@ -11,6 +12,7 @@ interface Props {
   onOpenText: (id: string) => void;
   onChest: () => void;
   onAddKey: () => void;
+  onGame: (id: GameId) => void;
 }
 
 const WEEK = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
@@ -54,7 +56,7 @@ function PetCard({ streak, left, onLearn }: { streak: number; left: number; onLe
   );
 }
 
-export function Home({ onTab, onLearn, onOpenText, onChest, onAddKey }: Props) {
+export function Home({ onTab, onLearn, onOpenText, onChest, onAddKey, onGame }: Props) {
   const data = useData();
   const streak = currentStreak(data);
   const done = streakDays(data);
@@ -70,6 +72,8 @@ export function Home({ onTab, onLearn, onOpenText, onChest, onAddKey }: Props) {
   const goalMet = p.reviewed >= DAILY_GOAL;
   const chestClaimed = data.stats.chestDay === todayKey();
   const left = Math.max(0, DAILY_GOAL - p.reviewed);
+  const gameWords = unlockedWords(data).length;
+  const bossWaiting = data.stats.bossWonDay !== todayKey() && gameWords >= GAME_MIN_WORDS;
 
   const lastId = lastOpenedText();
   const last = (lastId && data.texts[lastId] && !data.texts[lastId].deleted ? data.texts[lastId] : null) ?? liveTexts(data)[0] ?? null;
@@ -189,6 +193,26 @@ export function Home({ onTab, onLearn, onOpenText, onChest, onAddKey }: Props) {
           <button className="chunky c-card" onClick={() => learnIn('chunks')}>
             {waitingChunks > 0 ? `▶ Учить чанки · ${waitingChunks}` : '▶ Учить чанки'}
           </button>
+        </div>
+
+        <div className="tile goal c-sky">
+          <div className="goal-head">
+            <b>🎢 Аттракционы</b>
+            {gameWords < GAME_MIN_WORDS && (
+              <span style={{ fontWeight: 700, fontSize: 13 }}>
+                нужно {GAME_MIN_WORDS} слов · есть {gameWords}
+              </span>
+            )}
+          </div>
+          <div className="games-grid">
+            {(Object.keys(GAMES) as GameId[]).map((id) => (
+              <button key={id} className={`game-tile ${id === 'boss' && bossWaiting ? 'boss-ready' : ''}`} onClick={() => onGame(id)}>
+                <span className="ge">{GAMES[id].emoji}</span>
+                <b>{GAMES[id].title}</b>
+                <small>{recordLine(id)}</small>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

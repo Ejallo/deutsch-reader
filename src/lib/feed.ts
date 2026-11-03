@@ -85,7 +85,7 @@ export const shortTranslation = (w: Word) => (w.meanings.split(',')[0] || w.tran
 
 export const fullGerman = (w: Word) => (w.article ? `${w.article} ${w.lemma}` : w.lemma);
 
-const shuffle = <T,>(arr: T[]) => {
+export const shuffle = <T,>(arr: T[]) => {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));

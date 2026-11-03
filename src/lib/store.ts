@@ -102,6 +102,17 @@ export interface Stats extends Rec {
   freezes: number; // streak freezes won in chests (on top of the free weekly one)
   chestDay: string; // day the daily chest was claimed
   boostUntil: number; // epoch ms until which XP is doubled
+  records: GameRecords;
+  bossWonDay: string; // day the daily boss was beaten
+}
+
+export type GameId = 'speed' | 'survival' | 'pairs' | 'boss';
+
+/** Best results in the mini-games; pairs is the fastest time in ms (0 = none yet). */
+export interface GameRecords {
+  speed: number;
+  survival: number;
+  pairs: number;
 }
 
 export const DAILY_GOAL = 20;
@@ -133,7 +144,7 @@ export const emptyData = (): AppData => ({
   forms: {},
   settings: { geminiKey: '', geminiModel: '', newPerDay: DEFAULT_NEW_PER_DAY, sound: true, listening: true, readerFont: 'onest', readerSize: 19, readerSpacing: 'normal', theme: 'time', learnMode: 'all', mascot: '', updatedAt: 0 },
   progress: { day: '', newIntroduced: 0, reviewed: 0, updatedAt: 0 },
-  stats: { xp: 0, streak: 0, lastGoalDay: '', freezeUsedDay: '', milestones: [], gems: 0, freezes: 0, chestDay: '', boostUntil: 0, updatedAt: 0 },
+  stats: { xp: 0, streak: 0, lastGoalDay: '', freezeUsedDay: '', milestones: [], gems: 0, freezes: 0, chestDay: '', boostUntil: 0, records: { speed: 0, survival: 0, pairs: 0 }, bossWonDay: '', updatedAt: 0 },
 });
 
 const dayShift = (days: number) => {
@@ -192,6 +203,8 @@ function mergeMap<T extends Rec>(a: Record<string, T>, b: Record<string, T>): Re
 const newer = <T extends Rec>(a: T | undefined, b: T | undefined, fallback: T): T =>
   !a ? (b ?? fallback) : !b ? a : b.updatedAt > a.updatedAt ? b : a;
 
+const mergeStats = (base: Stats, s: Stats): Stats => ({ ...base, ...s, records: { ...base.records, ...s.records } });
+
 // Tolerates data written by older app versions (missing fields)
 export function mergeData(a: AppData, b: AppData): AppData {
   const base = emptyData();
@@ -204,7 +217,7 @@ export function mergeData(a: AppData, b: AppData): AppData {
     forms: mergeMap(a.forms ?? {}, b.forms ?? {}),
     settings: { ...base.settings, ...settings },
     progress: newer(a.progress, b.progress, base.progress),
-    stats: { ...base.stats, ...newer(a.stats, b.stats, base.stats) },
+    stats: mergeStats(base.stats, newer(a.stats, b.stats, base.stats)),
   };
 }
 
@@ -440,6 +453,18 @@ export function recordGoal() {
   });
 }
 
+/** Keeps a mini-game result if it beats the record; returns true for a new record. */
+export function saveGameRecord(game: keyof GameRecords, value: number): boolean {
+  const old = data.stats.records[game];
+  const better = game === 'pairs' ? value > 0 && (!old || value < old) : value > old;
+  if (better) update((d) => ({ ...d, stats: { ...d.stats, records: { ...d.stats.records, [game]: value }, updatedAt: now() } }));
+  return better;
+}
+
+export function winBoss(gems: number) {
+  update((d) => ({ ...d, stats: { ...d.stats, gems: d.stats.gems + gems, bossWonDay: todayKey(), updatedAt: now() } }));
+}
+
 export function markMilestone(n: number) {
   update((d) => ({ ...d, stats: { ...d.stats, milestones: [...d.stats.milestones, n], updatedAt: now() } }));
 }
@@ -475,6 +500,9 @@ export function wordForForm(d: AppData, form: string): Word | null {
 }
 
 export const statusOf = (d: AppData, form: string): FormStatus => wordForForm(d, form)?.status ?? 'new';
+
+/** Words the mini-games can ask about: anything in the dictionary with a translation. */
+export const unlockedWords = (d: AppData) => Object.values(d.words).filter((w) => !w.deleted && !!(w.meanings || w.translation));
 
 export const liveChunks = (d: AppData) => Object.values(d.chunks ?? {}).filter((c) => !c.deleted);
 

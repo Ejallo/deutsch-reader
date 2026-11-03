@@ -2690,3 +2690,168 @@ button.link.danger {
 .chest-screen .rarity-pill {
   margin-top: 10px;
 }
+
+/* ---------- Mini-games ---------- */
+.games-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+.game-tile {
+  --c: var(--card);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 12px 14px;
+  border: none;
+  border-radius: 18px;
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: 0 4px 0 color-mix(in oklch, var(--sky) 60%, black);
+  text-align: left;
+  font: inherit;
+}
+.game-tile:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 color-mix(in oklch, var(--sky) 60%, black);
+}
+.game-tile .ge {
+  font-size: 26px;
+  line-height: 1;
+}
+.game-tile b {
+  font: 700 15px var(--display);
+  margin-top: 4px;
+}
+.game-tile small {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--sub);
+}
+.game-tile.boss-ready {
+  box-shadow: 0 4px 0 color-mix(in oklch, var(--pink) 60%, black), 0 0 0 3px var(--pink);
+}
+.game-tile.boss-ready .ge {
+  animation: flicker 1.2s ease-in-out infinite;
+}
+.game-emoji {
+  font-size: 90px;
+  line-height: 1;
+  margin-top: 40px;
+  animation: sticker 0.5s cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+.game-intro .chunky,
+.game-over .chunky {
+  width: 100%;
+  margin-top: 22px;
+}
+.game-intro .review-pill {
+  margin-top: 6px;
+}
+.game-big {
+  font: 800 64px/1.1 var(--display);
+  margin-top: 10px;
+  animation: pop 0.4s ease;
+}
+.record-pill {
+  margin-top: 14px;
+  height: 32px;
+  font-size: 14px;
+}
+.hearts {
+  display: inline-flex;
+  gap: 4px;
+  font-size: 22px;
+}
+.hearts i {
+  font-style: normal;
+  transition: transform 0.3s, opacity 0.3s, filter 0.3s;
+}
+.hearts i.lost {
+  opacity: 0.35;
+  filter: grayscale(1);
+  transform: scale(0.8);
+  animation: shake 0.3s ease;
+}
+.pairs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  width: 100%;
+}
+.pairs > div {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pair-tile {
+  min-height: 54px;
+  padding: 8px 10px;
+  border-radius: 16px;
+  border: 2px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: 0 4px 0 var(--line);
+  font: 600 15px/1.2 var(--body, inherit);
+  transition: opacity 0.25s, transform 0.25s, background 0.15s;
+}
+.pair-tile.de {
+  font-family: var(--display);
+}
+.pair-tile.sel {
+  border-color: color-mix(in oklch, var(--lav) 60%, var(--ink));
+  background: color-mix(in oklch, var(--lav) 35%, var(--card));
+  transform: translateY(-2px);
+}
+.pair-tile.bad {
+  border-color: var(--danger);
+  animation: shake 0.3s ease;
+}
+.pair-tile.matched {
+  background: var(--mint);
+  border-color: var(--mint);
+  color: var(--onP);
+  opacity: 0;
+  transform: scale(0.85);
+  transition-delay: 0.15s;
+}
+.boss {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  max-width: 260px;
+}
+.boss-face {
+  font-size: 76px;
+  line-height: 1;
+  animation: boss-idle 2s ease-in-out infinite;
+}
+.boss-face.hit {
+  animation: boss-hit 0.4s ease, boss-idle 2s ease-in-out 0.4s infinite;
+}
+@keyframes boss-idle {
+  50% {
+    transform: translateY(-6px) rotate(3deg);
+  }
+}
+@keyframes boss-hit {
+  20% {
+    transform: translateX(-10px) scale(0.9);
+    filter: brightness(2) saturate(0);
+  }
+  60% {
+    transform: translateX(8px) scale(1.05);
+  }
+}
+.boss-name {
+  font: 700 14px var(--display);
+  color: var(--sub);
+}
+.boss .pbar {
+  width: 100%;
+  margin-top: 4px;
+}

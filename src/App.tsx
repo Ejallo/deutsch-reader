@@ -12,10 +12,11 @@ import { ChestScreen } from './components/Rewards';
 import type { Tab } from './components/TabBar';
 import { useSync } from './lib/sync';
 import { useApplyTheme } from './lib/theme';
-import { useData } from './lib/store';
+import { useData, type GameId } from './lib/store';
 import { KeyStep } from './components/KeyStep';
 import { MascotStep } from './components/MascotStep';
 import { MascotGallery } from './components/Mascot';
+import { Game } from './components/Games';
 
 export type View =
   | { name: Tab }
@@ -23,7 +24,8 @@ export type View =
   | { name: 'reader'; id: string; from: Tab }
   | { name: 'feed'; from: Tab }
   | { name: 'key' }
-  | { name: 'chest' };
+  | { name: 'chest' }
+  | { name: 'game'; game: GameId };
 
 export function App() {
   const [view, setView] = useState<View>({ name: 'home' });
@@ -73,6 +75,8 @@ export function App() {
       return <KeyStep onDone={() => setView({ name: 'home' })} onSkip={() => setView({ name: 'home' })} />;
     case 'chest':
       return <ChestScreen onDone={() => setView({ name: 'home' })} />;
+    case 'game':
+      return <Game id={view.game} onClose={() => setView({ name: 'home' })} />;
     case 'settings':
       return <Settings onTab={onTab} onLearn={learn} />;
     case 'words':
@@ -80,6 +84,6 @@ export function App() {
     case 'library':
       return <Library onOpen={openText} onAdd={() => setView({ name: 'add' })} onLearn={learn} onTab={onTab} onAddKey={() => setView({ name: 'key' })} />;
     default:
-      return <Home onTab={onTab} onLearn={learn} onOpenText={openText} onChest={() => setView({ name: 'chest' })} onAddKey={() => setView({ name: 'key' })} />;
+      return <Home onTab={onTab} onLearn={learn} onOpenText={openText} onChest={() => setView({ name: 'chest' })} onAddKey={() => setView({ name: 'key' })} onGame={(game) => setView({ name: 'game', game })} />;
   }
 }
