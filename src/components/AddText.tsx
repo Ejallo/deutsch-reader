@@ -299,7 +299,7 @@ const WIKI_SHELVES: Record<Exclude<Shelf, 'grimm' | 'tagesschau'>, { wiki: Wiki;
   klexikon: { wiki: KLEXIKON, hint: 'Детская энциклопедия на простом немецком: короткие предложения, понятные слова.', placeholder: 'Hund, Berlin, Fußball…' },
   news: {
     wiki: WIKINEWS,
-    hint: '⚠️ Архив: новости не обновляются, Wikinews закрывается. Настоящий газетный язык прошлых лет. Свежие новости — на полке tagesschau.',
+    hint: 'Wikinews закрывается и тут только старые новости, но это настоящий газетный язык прошлых лет. Свежие новости — на полке tagesschau.',
     placeholder: 'Wahl, Fußball, Wetter…',
   },
 };
