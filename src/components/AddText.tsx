@@ -13,12 +13,16 @@ import {
   wikiRandom,
   wikiSearch,
   readingMinutes,
+  RESSORTS,
+  tagesschauArticle,
+  tagesschauNews,
   learningWordsByWeakness,
   MAX_WOVEN_WORDS,
   type FoundText,
   type GenStage,
   type Length,
   type Level,
+  type NewsItem,
   type Tale,
   type Wiki,
 } from '../lib/sources';
@@ -279,20 +283,25 @@ function LinkTab({ onSave }: SaveProps) {
   );
 }
 
-type Shelf = 'mini' | 'klexikon' | 'news' | 'grimm';
+type Shelf = 'mini' | 'klexikon' | 'news' | 'tagesschau' | 'grimm';
 
 // Ordered from easiest to hardest
 const SHELVES: [Shelf, string][] = [
   ['mini', 'MiniKlexikon · A1–A2'],
   ['klexikon', 'Klexikon · A2–B1'],
-  ['news', 'Wikinews · B1–B2'],
+  ['news', 'Wikinews (архив) · B1–B2'],
+  ['tagesschau', 'Новости tagesschau · B2'],
   ['grimm', 'Сказки Гримм · B2+'],
 ];
 
-const WIKI_SHELVES: Record<Exclude<Shelf, 'grimm'>, { wiki: Wiki; hint: string; placeholder: string }> = {
+const WIKI_SHELVES: Record<Exclude<Shelf, 'grimm' | 'tagesschau'>, { wiki: Wiki; hint: string; placeholder: string }> = {
   mini: { wiki: MINIKLEXIKON, hint: 'Самые простые статьи: очень короткие предложения, базовые слова.', placeholder: 'Katze, Sonne, Schule…' },
   klexikon: { wiki: KLEXIKON, hint: 'Детская энциклопедия на простом немецком: короткие предложения, понятные слова.', placeholder: 'Hund, Berlin, Fußball…' },
-  news: { wiki: WIKINEWS, hint: 'Новостные заметки из архива Wikinews: настоящий газетный язык. Новых статей там почти не пишут.', placeholder: 'Wahl, Fußball, Wetter…' },
+  news: {
+    wiki: WIKINEWS,
+    hint: '⚠️ Архив: новости не обновляются, Wikinews закрывается. Настоящий газетный язык прошлых лет. Свежие новости — на полке tagesschau.',
+    placeholder: 'Wahl, Fußball, Wetter…',
+  },
 };
 
 function LibraryTab({ onSave }: SaveProps) {
@@ -306,7 +315,13 @@ function LibraryTab({ onSave }: SaveProps) {
           </button>
         ))}
       </div>
-      {shelf === 'grimm' ? <GrimmShelf onSave={onSave} /> : <WikiShelf key={shelf} {...WIKI_SHELVES[shelf]} onSave={onSave} />}
+      {shelf === 'grimm' ? (
+        <GrimmShelf onSave={onSave} />
+      ) : shelf === 'tagesschau' ? (
+        <TagesschauShelf onSave={onSave} />
+      ) : (
+        <WikiShelf key={shelf} {...WIKI_SHELVES[shelf]} onSave={onSave} />
+      )}
     </>
   );
 }
@@ -344,6 +359,42 @@ function WikiShelf({ wiki, hint, placeholder, onSave }: SaveProps & { wiki: Wiki
           <li key={t}>
             <button className="list-item" disabled={busy} onClick={() => void run(async () => onSave(await wikiArticle(wiki, t)))}>
               <span className="list-title">{t}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+function TagesschauShelf({ onSave }: SaveProps) {
+  const [ressort, setRessort] = useState('');
+  const [items, setItems] = useState<NewsItem[]>([]);
+  const { busy, error, run } = useTask();
+
+  useEffect(() => {
+    void run(async () => setItems(await tagesschauNews(ressort)));
+  }, [ressort]);
+
+  return (
+    <>
+      <p className="muted small">Свежие новости ARD, обновляются каждый час. Обычный газетный язык — сложнее Klexikon. Только для личного чтения.</p>
+      <div className="chips tight">
+        {RESSORTS.map(([id, label]) => (
+          <button key={id || 'all'} className={ressort === id ? 'chip on' : 'chip'} onClick={() => setRessort(id)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {error && <p className="error">{error}</p>}
+      {busy && <p className="muted">Загружаю…</p>}
+      <ul className="list">
+        {items.map((n) => (
+          <li key={n.details}>
+            <button className="list-item" disabled={busy} onClick={() => void run(async () => onSave(await tagesschauArticle(n)))}>
+              {n.topline && <span className="muted small">{n.topline}</span>}
+              <span className="list-title">{n.title}</span>
+              <span className="muted small">{n.date}</span>
             </button>
           </li>
         ))}

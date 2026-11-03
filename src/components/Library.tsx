@@ -27,7 +27,7 @@ function ago(ts: number): string {
 function origin(source?: string): string {
   if (!source) return 'Вставлено';
   if (source.startsWith('Сгенерировано')) return 'Сгенерировано';
-  if (source.startsWith('Klexikon')) return 'Klexikon';
+  for (const name of ['MiniKlexikon', 'Klexikon', 'Wikinews', 'tagesschau.de']) if (source.startsWith(name)) return name;
   if (source.includes('Гримм')) return 'Сказки Гримм';
   return `Ссылка · ${source}`;
 }

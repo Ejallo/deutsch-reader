@@ -63,11 +63,14 @@ export function Mascot({ size = 130 }: { size?: number }) {
 
 export const articleClass = (article: string) => (article === 'der' || article === 'die' || article === 'das' ? `c-${article}` : '');
 
-/** CEFR level of a text from its source line (generated texts, Klexikon, Grimm). */
+/** CEFR level of a text from its source line (generated texts, library shelves). */
 export function textLevel(t: TextDoc): string {
   const m = t.source?.match(/\b(A1|A2|B1|B2|C1|C2)\b/);
   if (m) return m[1];
+  if (t.source?.startsWith('MiniKlexikon')) return 'A1';
   if (t.source?.startsWith('Klexikon')) return 'A2';
+  if (t.source?.startsWith('Wikinews')) return 'B1';
+  if (t.source?.startsWith('tagesschau')) return 'B2';
   if (t.source?.includes('Гримм')) return 'B2';
   return 'DE';
 }

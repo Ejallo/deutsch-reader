@@ -138,6 +138,63 @@ export async function wikiArticle(w: Wiki, title: string): Promise<FoundText> {
   return { title: j.parse.title, content: paras.join('\n\n'), source: `${w.name} · ${w.license}` };
 }
 
+// --- tagesschau.de API: current news. Private, non-commercial use only; at most 60 requests an hour ---
+
+const TAGESSCHAU = 'https://www.tagesschau.de/api2u';
+const LIST_TTL = 10 * 60 * 1000;
+
+export const RESSORTS: [string, string][] = [
+  ['', 'Всё'],
+  ['inland', 'Германия'],
+  ['ausland', 'Мир'],
+  ['wirtschaft', 'Экономика'],
+  ['wissen', 'Наука'],
+  ['sport', 'Спорт'],
+];
+
+export interface NewsItem {
+  title: string;
+  topline: string;
+  date: string;
+  details: string; // JSON URL with the full story
+}
+
+// Lists are cached for a while so browsing the shelf stays far below the hourly limit
+const newsCache = new Map<string, { at: number; items: NewsItem[] }>();
+
+export async function tagesschauNews(ressort: string): Promise<NewsItem[]> {
+  const hit = newsCache.get(ressort);
+  if (hit && Date.now() - hit.at < LIST_TTL) return hit.items;
+  const r = await fetch(`${TAGESSCHAU}/news/${ressort ? `?ressort=${ressort}` : ''}`);
+  if (!r.ok) throw new Error(`tagesschau не отвечает (ошибка ${r.status})`);
+  const j = await r.json();
+  const items: NewsItem[] = (j.news ?? [])
+    .filter((n: { type?: string; details?: string }) => n.type === 'story' && n.details)
+    .map((n: { title: string; topline?: string; date: string; details: string }) => ({
+      title: n.title,
+      topline: n.topline ?? '',
+      date: new Date(n.date).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
+      details: n.details,
+    }));
+  newsCache.set(ressort, { at: Date.now(), items });
+  return items;
+}
+
+// Lines that are site furniture, not the story
+const NEWS_NOISE = /^(Mehr zum Thema|Dieses Thema im Programm|Über dieses Thema berichtet|Mit Informationen von|Von [^.!?]{3,80}$)/;
+
+export async function tagesschauArticle(item: NewsItem): Promise<FoundText> {
+  const r = await fetch(item.details);
+  if (!r.ok) throw new Error(`tagesschau не отвечает (ошибка ${r.status})`);
+  const j = await r.json();
+  const paras = (j.content ?? [])
+    .filter((c: { type?: string; value?: string }) => (c.type === 'text' || c.type === 'headline') && c.value)
+    .map((c: { value: string }) => (new DOMParser().parseFromString(c.value, 'text/html').body.textContent ?? '').replace(/\s+/g, ' ').trim())
+    .filter((p: string) => p.length > 20 && !NEWS_NOISE.test(p));
+  if (!paras.length) throw new Error(`В новости «${item.title}» нет текста — выбери другую`);
+  return { title: j.title ?? item.title, content: paras.join('\n\n'), source: 'tagesschau.de · только для личного чтения' };
+}
+
 // --- Grimm fairy tales (public domain), bundled with the app ---
 
 export interface Tale {
