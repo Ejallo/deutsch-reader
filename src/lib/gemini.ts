@@ -291,6 +291,33 @@ export async function makeChunk(hint: string, sentence: string, avoid?: ChunkInf
   return info;
 }
 
+/** Russian versions of headlines, one request for all that aren't cached yet. */
+export async function translateTitles(titles: string[]): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  const missing = titles.filter((t) => {
+    const hit = cache[`t|${t}`];
+    if (hit) out[t] = hit as string;
+    return !hit;
+  });
+  if (!missing.length) return out;
+  const r = await generate<{ translations: string[] }>(
+    `Translate these German news headlines into short natural Russian, in the same order, one translation per headline:\n` +
+      missing.map((t, i) => `${i + 1}. ${t}`).join('\n'),
+    {
+      type: 'OBJECT',
+      properties: { translations: { type: 'ARRAY', items: S('Russian translation of one headline'), description: `Exactly ${missing.length} items` } },
+      required: ['translations'],
+    },
+  );
+  // A count mismatch would pair headlines with the wrong translations
+  if (r.translations?.length !== missing.length) return out;
+  missing.forEach((t, i) => {
+    out[t] = r.translations[i];
+    remember(`t|${t}`, r.translations[i]);
+  });
+  return out;
+}
+
 export async function translateParagraph(text: string): Promise<string> {
   const key = `para|${text}`;
   if (cache[key]) return cache[key] as string;

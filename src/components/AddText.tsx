@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { addText } from '../lib/store';
+import { addText, useData } from '../lib/store';
+import { translateTitles } from '../lib/gemini';
 import { TopBar, type Accent } from './ui';
 import {
   generate,
@@ -372,11 +373,25 @@ function TagesschauShelf({ onSave }: SaveProps) {
   const [ressort, setRessort] = useState<string | null>(''); // null while showing search results
   const [query, setQuery] = useState('');
   const [items, setItems] = useState<NewsItem[]>([]);
+  const [ru, setRu] = useState<Record<string, string>>({});
+  const hasKey = !!useData().settings.geminiKey;
   const { busy, error, run } = useTask();
 
   useEffect(() => {
     if (ressort !== null) void run(async () => setItems(await tagesschauNews(ressort)));
   }, [ressort]);
+
+  // Russian headlines help pick a story; fetched in the background, the list works without them
+  useEffect(() => {
+    if (!hasKey || !items.length) return;
+    let live = true;
+    translateTitles(items.map((n) => n.title))
+      .then((map) => live && setRu((cur) => ({ ...cur, ...map })))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [items, hasKey]);
 
   const search = () => {
     const q = query.trim();
@@ -424,6 +439,7 @@ function TagesschauShelf({ onSave }: SaveProps) {
             <button className="list-item" disabled={busy} onClick={() => void run(async () => onSave(await tagesschauArticle(n)))}>
               {n.topline && <span className="muted small">{n.topline}</span>}
               <span className="list-title">{n.title}</span>
+              {ru[n.title] && <span className="small muted">({ru[n.title]})</span>}
               <span className="muted small">{n.date}</span>
             </button>
           </li>
