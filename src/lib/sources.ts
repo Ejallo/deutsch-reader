@@ -118,13 +118,23 @@ export async function wikiSearch(w: Wiki, term: string): Promise<string[]> {
 
 export async function wikiArticle(w: Wiki, title: string): Promise<FoundText> {
   const j = await wiki(w, { action: 'parse', page: title, redirects: '1', prop: 'text' });
+  if (!j.parse?.text) throw new Error(`${w.name}: не удалось открыть «${title}»`);
   const doc = new DOMParser().parseFromString(j.parse.text, 'text/html');
+  // Status boxes, infoboxes, captions and navigation are not part of the article
+  doc.querySelectorAll('table, figure, .navbox, .thumb, style, script, sup.reference').forEach((n) => n.remove());
   // MiniKlexikon articles are short: keep shorter paragraphs there
   const min = w === MINIKLEXIKON ? 15 : 40;
-  const paras = [...doc.querySelectorAll('.mw-parser-output > p')]
-    .map((p) => (p.textContent ?? '').replace(/\[\d+\]/g, '').replace(/\s+/g, ' ').trim())
-    .filter((p) => p.length > min);
-  if (!paras.length) throw new Error('В этой статье нет текста');
+  const clean = (s: string | null) => (s ?? '').replace(/\[\d+\]/g, '').replace(/\s+/g, ' ').trim();
+  const pick = (nodes: Element[]) => nodes.map((p) => clean(p.textContent)).filter((p) => p.length > min);
+  // Top-level paragraphs first; some pages (and some browsers' parsing) nest them deeper
+  let paras = pick([...doc.querySelectorAll('.mw-parser-output > p')]);
+  if (!paras.length) paras = pick([...doc.querySelectorAll('p')]);
+  if (!paras.length)
+    paras = (doc.body.textContent ?? '')
+      .split(/\n+/)
+      .map(clean)
+      .filter((p) => p.length > min && /[.!?»“"]$/.test(p));
+  if (!paras.length) throw new Error(`В статье «${title}» нет связного текста — выбери другую`);
   return { title: j.parse.title, content: paras.join('\n\n'), source: `${w.name} · ${w.license}` };
 }
 
