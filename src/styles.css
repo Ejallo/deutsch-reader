@@ -1504,6 +1504,17 @@ button.link.danger {
   font-weight: 600;
   padding: 4px;
 }
+.feed-back {
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: var(--sub);
+  font-weight: 700;
+  padding: 4px;
+}
+.feed-back:disabled {
+  opacity: 0.3;
+}
 .feed-top .pbar {
   flex: 1;
   --h: 14px;
@@ -1551,6 +1562,33 @@ button.link.danger {
 }
 .feed-card.leaving {
   animation: card-out 0.26s ease-in forwards;
+}
+.feed-card.parked {
+  display: none;
+}
+/* A past card drops in from above, the way it left */
+.feed-card.entering-back {
+  animation: card-back 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.1);
+}
+@keyframes card-back {
+  from {
+    transform: translateY(-50%) scale(0.96);
+    opacity: 0;
+  }
+}
+.review-pill {
+  --c: var(--butter);
+  height: 26px;
+  align-self: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+.review-actions {
+  display: flex;
+  gap: 10px;
+}
+.review-actions .chunky {
+  flex: 1;
 }
 @keyframes card-in {
   from {

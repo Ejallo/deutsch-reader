@@ -14,10 +14,15 @@ interface Props {
 }
 
 type Result = { answer: Answer; picked?: number; typed?: string; xp?: number };
+/** An answered card kept so it can be looked at again (read-only). */
+type Seen = { item: FeedItem; result: Result };
+type CardData = { word?: Word; chunk?: Chunk; example?: ChunkExample };
 
 const ROUND_BONUS_XP = 20;
 const LEAVE_MS = 260;
 const SWIPE_PX = 60;
+const HISTORY = 10;
+const NAV_GAP_MS = 350; // one wheel flick fires many events: move one card per flick
 const MODES: [LearnMode, string][] = [
   ['all', 'Всё'],
   ['words', 'Слова'],
@@ -25,6 +30,21 @@ const MODES: [LearnMode, string][] = [
 ];
 // A correct chunk answer faster than this counts as "easy" and is scheduled much further out
 const EASY_MS: Partial<Record<Format, number>> = { 'c-choose': 4000, 'c-tiles': 9000, 'c-write': 7000, 'c-ru': 9000 };
+
+/** The word or chunk a card is about, as it is in the data now. */
+function resolveCard(data: ReturnType<typeof getData>, item: FeedItem | null): CardData {
+  if (!item || isSpecial(item.format)) return {};
+  if (!item.chunkId) return { word: data.words[item.wordId] };
+  const c = data.chunks[item.chunkId];
+  if (!c || c.deleted || !c.examples.length) return {};
+  return { chunk: c, example: c.examples[Math.min(item.ex ?? 0, c.examples.length - 1)] };
+}
+
+/** The right answer and its meaning, shown under an answered card. */
+function answerText(item: FeedItem, { word, chunk, example }: CardData) {
+  if (word) return { solution: fullGerman(word), meaning: shortTranslation(word) };
+  return item.format === 'c-ru' ? { solution: chunk!.text, meaning: chunk!.translation } : { solution: example!.de, meaning: example!.ru };
+}
 
 export function Feed({ onClose }: Props) {
   const data = useData();
@@ -56,13 +76,21 @@ export function Feed({ onClose }: Props) {
   }, [load]);
 
   const needsWord = !!item && !isSpecial(item.format) && !item.chunkId;
-  const word: Word | undefined = item && needsWord ? data.words[item.wordId] : undefined;
-  const liveChunk = item?.chunkId ? data.chunks[item.chunkId] : undefined;
-  const chunk: Chunk | undefined = liveChunk && !liveChunk.deleted && liveChunk.examples.length ? liveChunk : undefined;
-  const example: ChunkExample | undefined = chunk ? chunk.examples[Math.min(item?.ex ?? 0, chunk.examples.length - 1)] : undefined;
+  const live = resolveCard(data, item);
+  const { word, chunk, example } = live;
   const shownAt = useRef(0);
 
+  // Answered cards of this session; `back` points into it while looking at past cards
+  const history = useRef<Seen[]>([]);
+  const [back, setBack] = useState<number | null>(null);
+  const current = useRef<{ item: FeedItem | null; result: Result | null }>({ item: null, result: null });
+  current.current = { item, result };
+  const lastNav = useRef(0);
+
   const goNext = useCallback(() => {
+    const { item: it, result: r } = current.current;
+    const h = history.current;
+    if (it && r && h[h.length - 1]?.item.key !== it.key) history.current = [...h, { item: it, result: r }].slice(-HISTORY);
     sfx.swipe();
     setLeaving(true);
     setTimeout(() => {
@@ -156,6 +184,7 @@ export function Feed({ onClose }: Props) {
     if (m === getData().settings.learnMode) return;
     updateSettings({ learnMode: m });
     session.current.offeredMore = false;
+    setBack(null);
     load(); // cards of the other kind still queued are dropped by nextItem
   };
 
@@ -167,8 +196,28 @@ export function Feed({ onClose }: Props) {
 
   const canAdvance = !!item && (item.format === 'intro' || item.format === 'c-intro' || !!result || specialDone);
 
+  const navReady = () => {
+    const t = Date.now();
+    if (t - lastNav.current < NAV_GAP_MS) return false;
+    lastNav.current = t;
+    return true;
+  };
+
+  // Swipe down / wheel up / ↓ shows the previous answered card, read-only
+  const canBack = !leaving && item?.format !== 'goal' && !showChest && (back ?? history.current.length) > 0;
+  const goBack = () => {
+    if (!canBack || !navReady()) return;
+    sfx.swipe();
+    setBack((back ?? history.current.length) - 1);
+  };
+  const goForward = () => {
+    if (back === null || !navReady()) return;
+    setBack(back + 1 < history.current.length ? back + 1 : null);
+  };
+
   // Swipe up / wheel / keys move to the next card once this one is done
   const tryAdvance = () => {
+    if (back !== null) return goForward();
     if (!canAdvance || leaving) return;
     if (item?.format === 'intro' || item?.format === 'c-intro') finishIntro();
     else goNext();
@@ -179,6 +228,7 @@ export function Feed({ onClose }: Props) {
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       if (e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') tryAdvance();
+      if (e.key === 'ArrowDown') goBack();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -188,9 +238,45 @@ export function Feed({ onClose }: Props) {
   const rounds = Math.floor(p.reviewed / DAILY_GOAL);
   const mult = comboMultiplier(combo);
 
+  // A past card is drawn by the same components with its saved result, so every control stays locked
+  const renderQuiz = (it: FeedItem, res: Result | null, { word, chunk, example }: CardData, readOnly: boolean) => {
+    const ans = (answer: Answer, extra: Omit<Result, 'answer'>) => !readOnly && submit(answer, extra);
+    const pick = (i: number) => ans(i === it.answer ? 'good' : 'again', { picked: i });
+    if (chunk && example) {
+      switch (it.format) {
+        case 'c-intro':
+          return <ChunkIntroCard c={chunk} e={example} onDone={finishIntro} />;
+        case 'c-choose':
+          return <ChunkChooseCard e={example} item={it} result={res} onPick={pick} />;
+        case 'c-tiles':
+          return <ChunkTilesCard e={example} tiles={it.tiles ?? []} result={res} onCheck={(order) => ans(checkTiles(example, order), { typed: order.join(' ') })} />;
+        case 'c-write':
+          return <ChunkWriteCard e={example} result={res} onCheck={(typed) => ans(checkGap(example, typed), { typed })} />;
+        case 'c-ru':
+          return <ChunkRuCard c={chunk} result={res} onCheck={(typed) => ans(checkChunk(chunk, typed), { typed })} />;
+      }
+      return null;
+    }
+    if (!word) return null;
+    switch (it.format) {
+      case 'intro':
+        return <IntroCard w={word} onDone={finishIntro} />;
+      case 'choose':
+        return <ChooseCard w={word} item={it} result={res} onPick={pick} />;
+      case 'listen':
+        return <ListenCard w={word} item={it} result={res} onPick={pick} />;
+      case 'article':
+        return <ArticleCard w={word} item={it} result={res} onPick={pick} combo={readOnly ? 0 : combo} />;
+      case 'write':
+        return <WriteCard w={word} result={res} onCheck={(typed) => ans(checkWritten(word, typed), { typed })} />;
+      case 'sentence':
+        return <SentenceCard w={word} done={specialDone} onFinish={finishSentence} onNext={goNext} />;
+    }
+    return null;
+  };
+
   const renderCard = () => {
     if (!item) return null;
-    const pick = (i: number) => submit(i === item.answer ? 'good' : 'again', { picked: i });
     switch (item.format) {
       case 'chest':
         return <ChestCard done={specialDone} onOpen={finishSpecial} onNext={goNext} />;
@@ -203,38 +289,12 @@ export function Feed({ onClose }: Props) {
       case 'more':
         return <MoreCard left={item.left ?? 0} onMore={moreNew} onSkip={goNext} />;
     }
-    if (chunk && example) {
-      switch (item.format) {
-        case 'c-intro':
-          return <ChunkIntroCard c={chunk} e={example} onDone={finishIntro} />;
-        case 'c-choose':
-          return <ChunkChooseCard e={example} item={item} result={result} onPick={pick} />;
-        case 'c-tiles':
-          return <ChunkTilesCard e={example} tiles={item.tiles ?? []} result={result} onCheck={(order) => submit(checkTiles(example, order), { typed: order.join(' ') })} />;
-        case 'c-write':
-          return <ChunkWriteCard e={example} result={result} onCheck={(typed) => submit(checkGap(example, typed), { typed })} />;
-        case 'c-ru':
-          return <ChunkRuCard c={chunk} result={result} onCheck={(typed) => submit(checkChunk(chunk, typed), { typed })} />;
-      }
-      return null;
-    }
-    if (!word) return null;
-    switch (item.format) {
-      case 'intro':
-        return <IntroCard w={word} onDone={finishIntro} />;
-      case 'choose':
-        return <ChooseCard w={word} item={item} result={result} onPick={pick} />;
-      case 'listen':
-        return <ListenCard w={word} item={item} result={result} onPick={pick} />;
-      case 'article':
-        return <ArticleCard w={word} item={item} result={result} onPick={pick} combo={combo} />;
-      case 'write':
-        return <WriteCard w={word} result={result} onCheck={(typed) => submit(checkWritten(word, typed), { typed })} />;
-      case 'sentence':
-        return <SentenceCard w={word} done={specialDone} onFinish={finishSentence} onNext={goNext} />;
-    }
-    return null;
+    return renderQuiz(item, result, live, false);
   };
+
+  const seen = back !== null ? history.current[back] : null;
+  const past = seen ? resolveCard(data, seen.item) : null;
+  const pastOk = !!past && (!!past.word || !!past.example);
 
   return (
     <div
@@ -242,16 +302,24 @@ export function Feed({ onClose }: Props) {
       onPointerDown={unlockAudio}
       onTouchStart={(e) => (touchY.current = e.touches[0].clientY)}
       onTouchEnd={(e) => {
-        if (touchY.current !== null && touchY.current - e.changedTouches[0].clientY > SWIPE_PX) tryAdvance();
+        if (touchY.current !== null) {
+          const dy = touchY.current - e.changedTouches[0].clientY;
+          if (dy > SWIPE_PX) tryAdvance();
+          else if (dy < -SWIPE_PX) goBack();
+        }
         touchY.current = null;
       }}
       onWheel={(e) => {
         if (e.deltaY > 40) tryAdvance();
+        else if (e.deltaY < -40) goBack();
       }}
     >
       <header className="feed-top">
         <button className="feed-close" onClick={onClose} aria-label="Закрыть">
           ✕
+        </button>
+        <button className="feed-back" onClick={goBack} disabled={!canBack} aria-label="Предыдущая карточка" title="Предыдущая карточка (свайп вниз)">
+          ↩
         </button>
         <PBar value={(p.reviewed % DAILY_GOAL) / DAILY_GOAL} accent="mint" h={14} />
         {rounds > 0 && (
@@ -300,22 +368,31 @@ export function Feed({ onClose }: Props) {
           />
         )}
         {item && (word || chunk || isSpecial(item.format)) && item.format !== 'goal' && (
-          <div key={item.key} className={`feed-card ${leaving ? 'leaving' : 'entering'} ${result ? `res-${result.answer}` : ''} fmt-${item.format}`}>
+          // Stays mounted while a past card is shown, so a half-typed answer survives the trip back
+          <div key={item.key} className={`feed-card ${leaving ? 'leaving' : 'entering'} ${back !== null ? 'parked' : ''} ${result ? `res-${result.answer}` : ''} fmt-${item.format}`}>
             {((result?.answer === 'good' && combo > 0 && combo % 3 === 0) || roundDone > 0) && <Confetti />}
             {renderCard()}
             {!!result?.xp && <span className="xp-float">+{result.xp} XP</span>}
           </div>
         )}
+        {seen && (
+          <div key={`past-${seen.item.key}`} className={`feed-card entering-back reviewing res-${seen.result.answer} fmt-${seen.item.format}`}>
+            <span className="pill review-pill">Просмотр · ответ уже засчитан</span>
+            {pastOk ? renderQuiz(seen.item, seen.result, past!, true) : <p className="muted">Эта карточка удалена из словаря.</p>}
+          </div>
+        )}
       </div>
 
-      {result && (word || (chunk && example)) && (
-        <ResultSheet
-          result={result}
-          solution={word ? fullGerman(word) : item?.format === 'c-ru' ? chunk!.text : example!.de}
-          meaning={word ? shortTranslation(word) : item?.format === 'c-ru' ? chunk!.translation : example!.ru}
-          combo={combo}
-          round={roundDone}
-          onNext={goNext}
+      {result && back === null && (word || (chunk && example)) && (
+        <ResultSheet result={result} {...answerText(item!, live)} combo={combo} round={roundDone} onNext={goNext} />
+      )}
+      {seen && (
+        <ReviewSheet
+          answer={seen.result.answer}
+          text={pastOk ? answerText(seen.item, past!) : null}
+          canBack={canBack}
+          onBack={goBack}
+          onReturn={() => setBack(null)}
         />
       )}
 
@@ -380,6 +457,33 @@ function ResultSheet({ result, solution, meaning, combo, round, onNext }: { resu
       <button className="chunky c-card" onClick={onNext}>
         Понятно
       </button>
+    </div>
+  );
+}
+
+/** Sheet under a past card: what the right answer was, and the way back to the current card. */
+function ReviewSheet({ answer, text, canBack, onBack, onReturn }: { answer: Answer; text: { solution: string; meaning: string } | null; canBack: boolean; onBack: () => void; onReturn: () => void }) {
+  const title = answer === 'good' ? 'Ты ответил верно' : answer === 'hard' ? 'Было почти верно' : 'Здесь была ошибка';
+  return (
+    <div className={`result-sheet ${answer === 'good' ? 'c-mint' : answer === 'hard' ? 'c-butter' : 'c-pink'}`}>
+      <div className="head">
+        <div>
+          <div className="ttl">{title}</div>
+          {text && (
+            <div className="sub">
+              Правильно: <b>{text.solution}</b> — {text.meaning}
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="review-actions">
+        <button className="chunky c-card" disabled={!canBack} onClick={onBack}>
+          ↓ Ещё назад
+        </button>
+        <button className="chunky c-card" onClick={onReturn}>
+          К текущей ↑
+        </button>
+      </div>
     </div>
   );
 }
@@ -496,7 +600,7 @@ function WriteCard({ w, result, onCheck }: { w: Word; result: Result | null; onC
 
 /** Text field with umlaut buttons and a check button. */
 function TypeAnswer({ result, onCheck, placeholder }: { result: Result | null; onCheck: (typed: string) => void; placeholder: string }) {
-  const [value, setValue] = useState('');
+  const [value, setValue] = useState(result?.typed ?? ''); // a past card shows what was typed
   const [error, setError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -635,7 +739,7 @@ function ChunkRuCard({ c, result, onCheck }: { c: Chunk; result: Result | null; 
 
 /** Put the shuffled words of the sentence back in order; tap a placed word to take it back. */
 function ChunkTilesCard({ e, tiles, result, onCheck }: { e: ChunkExample; tiles: string[]; result: Result | null; onCheck: (order: string[]) => void }) {
-  const [placed, setPlaced] = useState<number[]>([]);
+  const [placed, setPlaced] = useState<number[]>(() => restoreOrder(tiles, result?.typed));
   const left = tiles.map((_, i) => i).filter((i) => !placed.includes(i));
   return (
     <>
@@ -668,6 +772,16 @@ function ChunkTilesCard({ e, tiles, result, onCheck }: { e: ChunkExample; tiles:
       )}
     </>
   );
+}
+
+/** Tile indices for a saved answer (words joined by spaces), so a past card shows the sentence as it was built. */
+function restoreOrder(tiles: string[], typed?: string) {
+  const used: number[] = [];
+  for (const t of typed ? typed.split(' ') : []) {
+    const i = tiles.findIndex((x, j) => x === t && !used.includes(j));
+    if (i >= 0) used.push(i);
+  }
+  return used;
 }
 
 function MoreCard({ left, onMore, onSkip }: { left: number; onMore: () => void; onSkip: () => void }) {
