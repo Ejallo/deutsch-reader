@@ -19,13 +19,51 @@ export const XP = {
   sentenceFixed: 15,
 };
 
-export const CHEST_REWARDS = [20, 20, 30, 30, 30, 50, 50, 100];
+/** Combo look: 0 none, 1 ⚡ (3+), 2 🔥 (5+), 3 🔥🔥 with a burning card (10+). */
+export const comboTier = (combo: number) => (combo >= 10 ? 3 : combo >= 5 ? 2 : combo >= 3 ? 1 : 0);
 
-/** Rolls the daily chest's contents. */
-export function rollChest(): { gems: number; freeze: boolean; bonusXp: number; boostMinutes: number } {
-  const gems = 20 + 10 * Math.floor(Math.random() * 5);
-  const freeze = Math.random() < 0.3;
-  return { gems, freeze, bonusXp: freeze ? 0 : 50, boostMinutes: 15 };
+/** Combos worth a big celebration: 5, 10, 20, 30… */
+export const comboMilestone = (combo: number) => combo === 5 || (combo >= 10 && combo % 10 === 0);
+
+// Variable rewards: an unpredictable bonus keeps every answer a little exciting
+export const GOLDEN_MULT = 5;
+export const GOLDEN_CHANCE = 1 / 12;
+export const GOLDEN_GAP = 8; // at least this many cards between golden cards
+
+/** Rolls a critical hit for a correct answer: ×3 rarely, ×2 sometimes, else ×1. */
+export function rollCrit() {
+  const r = Math.random();
+  return r < 0.03 ? 3 : r < 0.13 ? 2 : 1;
+}
+
+export type Rarity = 'common' | 'rare' | 'epic';
+
+export const RARITY: Record<Rarity, { label: string; xp: [number, number]; gems: [number, number] }> = {
+  common: { label: 'Обычный сундук', xp: [20, 30], gems: [20, 40] },
+  rare: { label: 'Редкий сундук', xp: [50, 70], gems: [50, 80] },
+  epic: { label: 'Эпический сундук', xp: [100, 150], gems: [100, 150] },
+};
+
+export function rollRarity(): Rarity {
+  const r = Math.random();
+  return r < 0.06 ? 'epic' : r < 0.3 ? 'rare' : 'common';
+}
+
+/** While opening, a chest may jump one rarity up. */
+export function rollUpgrade(r: Rarity): Rarity {
+  if (r === 'common' && Math.random() < 0.2) return 'rare';
+  if (r === 'rare' && Math.random() < 0.15) return 'epic';
+  return r;
+}
+
+/** A random amount from the range, in steps of 10. */
+export const rollRange = ([lo, hi]: [number, number]) => lo + 10 * Math.floor(Math.random() * ((hi - lo) / 10 + 1));
+
+/** Rolls the daily chest's contents; an epic chest always holds a streak freeze. */
+export function rollChest(): { rarity: Rarity; gems: number; freeze: boolean; bonusXp: number; boostMinutes: number } {
+  const rarity = rollRarity();
+  const freeze = rarity === 'epic' || Math.random() < 0.3;
+  return { rarity, gems: rollRange(RARITY[rarity].gems), freeze, bonusXp: freeze ? 0 : rollRange(RARITY[rarity].xp), boostMinutes: rarity === 'epic' ? 30 : 15 };
 }
 
 export const MILESTONES = [10, 25, 50, 100, 200, 300, 500, 750, 1000, 1500, 2000];

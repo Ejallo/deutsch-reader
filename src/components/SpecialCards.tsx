@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getData, markMilestone, useData, type Word } from '../lib/store';
 import { fullGerman, shortTranslation } from '../lib/feed';
-import { CHEST_REWARDS, levelOf, XP } from '../lib/gamify';
+import { levelOf, RARITY, rollRange, rollRarity, rollUpgrade, XP, type Rarity } from '../lib/gamify';
 import { checkSentence, type SentenceCheck } from '../lib/gemini';
 import { sfx } from '../lib/sfx';
 
@@ -15,8 +15,8 @@ function NextButton({ onNext }: { onNext: () => void }) {
   );
 }
 
-/** Short confetti burst drawn inside the card (never over other UI). */
-export function Confetti() {
+/** Short confetti burst drawn inside the card (never over other UI); `count`/`power` scale it down for small wins. */
+export function Confetti({ count = 90, power = 1 }: { count?: number; power?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const c = ref.current;
@@ -25,11 +25,11 @@ export function Confetti() {
     const w = (c.width = c.offsetWidth * devicePixelRatio);
     const h = (c.height = c.offsetHeight * devicePixelRatio);
     const colors = ['#ffcdb5', '#d7ccfe', '#b6f1d6', '#fcebae', '#b5e2fd', '#fecbd9'];
-    const parts = Array.from({ length: 90 }, () => ({
+    const parts = Array.from({ length: count }, () => ({
       x: w / 2,
       y: h * 0.35,
-      vx: (Math.random() - 0.5) * 14 * devicePixelRatio,
-      vy: (-Math.random() * 12 - 4) * devicePixelRatio,
+      vx: (Math.random() - 0.5) * 14 * power * devicePixelRatio,
+      vy: (-Math.random() * 12 - 4) * power * devicePixelRatio,
       s: (4 + Math.random() * 5) * devicePixelRatio,
       r: Math.random() * Math.PI,
       c: colors[Math.floor(Math.random() * colors.length)],
@@ -59,37 +59,53 @@ export function Confetti() {
   return <canvas ref={ref} className="confetti" aria-hidden="true" />;
 }
 
+/** In-feed chest: its rarity shows before opening, and it may upgrade while it shakes. */
 export function ChestCard({ done, onOpen, onNext }: { done: boolean; onOpen: (xp: number) => void; onNext: () => void }) {
+  const [rarity, setRarity] = useState<Rarity>(rollRarity);
   const [opening, setOpening] = useState(false);
+  const [upgraded, setUpgraded] = useState(false);
   const [reward, setReward] = useState(0);
 
   const open = () => {
     if (opening || done) return;
     setOpening(true);
+    const final = rollUpgrade(rarity);
+    const shake = rarity === 'epic' ? 1200 : 700;
+    if (final !== rarity) {
+      // The upgrade lands mid-shake, then the chest keeps shaking a bit longer
+      setTimeout(() => {
+        setRarity(final);
+        setUpgraded(true);
+        sfx.upgrade();
+      }, shake);
+    }
     setTimeout(() => {
-      const xp = CHEST_REWARDS[Math.floor(Math.random() * CHEST_REWARDS.length)];
+      const xp = rollRange(RARITY[final].xp);
       setReward(xp);
       sfx.chest();
+      if (final === 'epic') sfx.fanfare();
       onOpen(xp);
-    }, 600);
+    }, final !== rarity ? shake + 900 : shake);
   };
 
   return (
     <>
-      <span className="feed-label">Сюрприз</span>
+      <span className={`pill rarity-pill r-${rarity} ${upgraded ? 'bump' : ''}`}>{upgraded ? `Апгрейд! ${RARITY[rarity].label}` : RARITY[rarity].label}</span>
       {done ? (
         <>
-          <Confetti />
+          <Confetti count={rarity === 'epic' ? 160 : rarity === 'rare' ? 110 : 70} />
           <div className="chest-reward">+{reward} XP</div>
-          <p className="muted">{reward >= 100 ? 'Джекпот!' : reward >= 50 ? 'Отличный улов' : 'Неплохо'}</p>
+          <p className="muted">{rarity === 'epic' ? 'Джекпот!' : rarity === 'rare' ? 'Отличный улов' : 'Неплохо'}</p>
           <NextButton onNext={onNext} />
         </>
       ) : (
         <>
-          <button className={`chest ${opening ? 'opening' : ''}`} onClick={open} aria-label="Открыть сундук">
+          <button className={`chest r-${rarity} ${opening ? 'opening' : ''}`} onClick={open} aria-label="Открыть сундук">
             🎁
           </button>
-          <p className="muted">Нажми, чтобы открыть: от 20 до 100 XP</p>
+          <p className="muted">
+            Нажми, чтобы открыть: {RARITY[rarity].xp[0]}–{RARITY[rarity].xp[1]} XP{rarity !== 'epic' ? ' · может стать круче' : ''}
+          </p>
         </>
       )}
     </>

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { claimChest, currentStreak, DAILY_GOAL, getData, todayKey, todayProgress } from '../lib/store';
-import { levelOf, rollChest } from '../lib/gamify';
+import { levelOf, RARITY, rollChest } from '../lib/gamify';
 import { sfx } from '../lib/sfx';
 import { Confetti } from './SpecialCards';
 import { Mascot, PBar } from './ui';
@@ -92,8 +92,9 @@ export function ChestScreen({ onDone }: { onDone: () => void }) {
     setStage('opening');
     setTimeout(() => {
       sfx.chest();
+      if (rewards.rarity === 'epic') sfx.fanfare();
       setStage('open');
-    }, 1200);
+    }, rewards.rarity === 'epic' ? 1800 : 1200);
   };
 
   const take = () => {
@@ -105,10 +106,11 @@ export function ChestScreen({ onDone }: { onDone: () => void }) {
   return (
     <div className="overlay chest-screen">
       <div className="sunburst" />
-      {stage === 'open' && <Confetti />}
+      {stage === 'open' && <Confetti count={rewards.rarity === 'epic' ? 180 : 90} />}
       <div className="overlay-inner">
         <div className="overline">{stage === 'open' ? 'Сундук дня' : 'Нажми на сундук'}</div>
-        <button className={`chest-big ${stage === 'opening' ? 'wiggle' : ''}`} onClick={open} aria-label="Открыть сундук">
+        <span className={`pill rarity-pill r-${rewards.rarity}`}>{RARITY[rewards.rarity].label}</span>
+        <button className={`chest-big r-${rewards.rarity} ${stage === 'opening' ? 'wiggle' : ''}`} onClick={open} aria-label="Открыть сундук">
           🎁
         </button>
         {stage === 'open' ? (
@@ -146,6 +148,26 @@ export function ChestScreen({ onDone }: { onDone: () => void }) {
         ) : (
           <div className="chest-title">{stage === 'opening' ? 'Открываю…' : 'Что внутри?'}</div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** Full-screen celebration when an answer crosses into a new level. */
+export function LevelUpScreen({ level, onDone }: { level: number; onDone: () => void }) {
+  return (
+    <div className="overlay chest-screen levelup-screen" onClick={onDone}>
+      <div className="sunburst" />
+      <Confetti count={150} />
+      <div className="overlay-inner">
+        <div className="overline">Новый уровень</div>
+        <div className="levelup-badge">{level}</div>
+        <Mascot mood="happy" />
+        <div className="chest-title">Уровень {level}!</div>
+        <div style={{ fontWeight: 600, opacity: 0.8, marginTop: 6 }}>Каждое слово приближает следующий</div>
+        <button className="chunky c-peach" onClick={onDone}>
+          Круто!
+        </button>
       </div>
     </div>
   );

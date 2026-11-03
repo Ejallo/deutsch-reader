@@ -2,18 +2,18 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { addXp, countPractice, DAILY_GOAL, type LearnMode, getData, learningCards, recordGoal, saveChunkReview, saveReview, todayProgress, updateSettings, useData, type Chunk, type ChunkExample, type Word } from '../lib/store';
 import { review, type Answer } from '../lib/srs';
 import { afterAnswer, checkChunk, checkGap, checkTiles, checkWritten, EXTRA_NEW_STEP, fullGerman, isSpecial, newSession, nextItem, shortTranslation, type FeedItem, type Format } from '../lib/feed';
-import { comboMultiplier, XP } from '../lib/gamify';
+import { comboMilestone, comboMultiplier, comboTier, GOLDEN_CHANCE, GOLDEN_GAP, GOLDEN_MULT, levelOf, rollCrit, XP } from '../lib/gamify';
 import { sfx, unlockAudio } from '../lib/sfx';
 import { speak } from '../lib/tts';
 import { BlitzCard, ChestCard, Confetti, MilestoneCard, SentenceCard } from './SpecialCards';
-import { ChestScreen, LessonSummary, type SessionStats } from './Rewards';
+import { ChestScreen, LessonSummary, LevelUpScreen, type SessionStats } from './Rewards';
 import { Mascot, PBar } from './ui';
 
 interface Props {
   onClose: () => void;
 }
 
-type Result = { answer: Answer; picked?: number; typed?: string; xp?: number };
+type Result = { answer: Answer; picked?: number; typed?: string; xp?: number; bonus?: number; golden?: boolean };
 /** An answered card kept so it can be looked at again (read-only). */
 type Seen = { item: FeedItem; result: Result };
 type CardData = { word?: Word; chunk?: Chunk; example?: ChunkExample };
@@ -30,6 +30,8 @@ const MODES: [LearnMode, string][] = [
 ];
 // A correct chunk answer faster than this counts as "easy" and is scheduled much further out
 const EASY_MS: Partial<Record<Format, number>> = { 'c-choose': 4000, 'c-tiles': 9000, 'c-write': 7000, 'c-ru': 9000 };
+const BREAK_DRAMA = 5; // losing a combo at least this long gets its own moment
+const NO_GOLD: Format[] = ['intro', 'c-intro', 'sentence'];
 
 /** The word or chunk a card is about, as it is in the data now. */
 function resolveCard(data: ReturnType<typeof getData>, item: FeedItem | null): CardData {
@@ -59,15 +61,39 @@ export function Feed({ onClose }: Props) {
   const touchY = useRef<number | null>(null);
   const stats = useRef<SessionStats>({ xp: 0, correct: 0, wrong: 0, maxCombo: 0 });
   const [showChest, setShowChest] = useState(false);
+  const [levelUp, setLevelUp] = useState<number | null>(null);
+  const [broke, setBroke] = useState(0); // length of the combo the last answer just lost
+  const lastGolden = useRef(-GOLDEN_GAP);
 
   const load = useCallback(() => {
     const r = nextItem(getData(), session.current);
-    setItem(r.item);
+    let it = r.item;
+    // Now and then a quiz card turns golden and pays several times the XP
+    const s = session.current;
+    if (it && !isSpecial(it.format) && !NO_GOLD.includes(it.format) && s.count - lastGolden.current >= GOLDEN_GAP && Math.random() < GOLDEN_CHANCE) {
+      lastGolden.current = s.count;
+      it = { ...it, golden: true };
+      sfx.golden();
+    }
+    setItem(it);
     setEmpty(r.item ? null : r.reason);
     setResult(null);
     setSpecialDone(false);
     setRoundDone(0);
+    setBroke(0);
   }, []);
+
+  /** Adds XP and opens the level-up screen when it crosses into a new level. */
+  const gainXp = (amount: number) => {
+    const before = levelOf(getData().stats.xp).level;
+    const got = addXp(amount);
+    const after = levelOf(getData().stats.xp).level;
+    if (after > before) {
+      sfx.levelUp();
+      setLevelUp(after);
+    }
+    return got;
+  };
 
   useEffect(() => {
     if (started.current) return; // StrictMode runs effects twice in dev
@@ -116,7 +142,7 @@ export function Feed({ onClose }: Props) {
       recordGoal();
       session.current.celebrateGoal = true;
     } else if (n > DAILY_GOAL && n % DAILY_GOAL === 0) {
-      stats.current.xp += addXp(ROUND_BONUS_XP);
+      stats.current.xp += gainXp(ROUND_BONUS_XP);
       sfx.fanfare();
       setRoundDone(n / DAILY_GOAL);
     }
@@ -141,33 +167,44 @@ export function Feed({ onClose }: Props) {
     afterAnswer(session.current, item, answer !== 'again', learningCards(getData()).length);
 
     // "Almost" keeps the combo alive but doesn't grow it
-    const nextCombo = answer === 'good' ? session.current.combo + 1 : answer === 'hard' ? session.current.combo : 0;
+    const prevCombo = session.current.combo;
+    const nextCombo = answer === 'good' ? prevCombo + 1 : answer === 'hard' ? prevCombo : 0;
     session.current.combo = nextCombo;
     setCombo(nextCombo);
-    const base = answer === 'good' ? XP.good * comboMultiplier(nextCombo) : answer === 'hard' ? XP.hard : 0;
-    const xp = addXp(base);
+    // A golden card pays a fixed multiplier; any other correct answer may roll a crit
+    const golden = !!item.golden && answer === 'good';
+    const bonus = answer !== 'good' ? 1 : golden ? GOLDEN_MULT : rollCrit();
+    // The bonus adds to the combo multiplier instead of multiplying it, so levels don't inflate
+    const base = answer === 'good' ? XP.good * (comboMultiplier(nextCombo) + bonus - 1) : answer === 'hard' ? XP.hard : 0;
+    const xp = gainXp(base);
     const st = stats.current;
     st.xp += xp;
     if (answer === 'again') st.wrong++;
     else st.correct++;
     st.maxCombo = Math.max(st.maxCombo, nextCombo);
-    if (answer === 'good') sfx.correct(nextCombo);
-    else if (answer === 'hard') sfx.almost();
-    else sfx.wrong();
+    if (answer === 'good') {
+      sfx.correct(nextCombo);
+      if (bonus > 1) sfx.crit();
+      if (comboTier(nextCombo) > comboTier(prevCombo)) sfx.comboUp(comboTier(nextCombo));
+    } else if (answer === 'hard') sfx.almost();
+    else if (prevCombo >= BREAK_DRAMA) {
+      sfx.comboBreak();
+      setBroke(prevCombo);
+    } else sfx.wrong();
 
-    setResult({ answer, xp, ...extra });
+    setResult({ answer, xp, bonus, golden, ...extra });
     if (getData().settings.listening) setTimeout(() => speak(say), 250);
   };
 
   const finishIntro = () => {
     if (!item) return;
     afterAnswer(session.current, item, true, 0);
-    stats.current.xp += addXp(XP.intro);
+    stats.current.xp += gainXp(XP.intro);
     goNext();
   };
 
   const finishSpecial = (xp: number) => {
-    stats.current.xp += addXp(xp);
+    stats.current.xp += gainXp(xp);
     setSpecialDone(true);
   };
 
@@ -176,7 +213,7 @@ export function Feed({ onClose }: Props) {
     countPractice();
     countTowardGoal();
     afterAnswer(session.current, item, true, 0);
-    stats.current.xp += addXp(xp);
+    stats.current.xp += gainXp(xp);
     setSpecialDone(true);
   };
 
@@ -236,7 +273,7 @@ export function Feed({ onClose }: Props) {
 
   const p = todayProgress(data);
   const rounds = Math.floor(p.reviewed / DAILY_GOAL);
-  const mult = comboMultiplier(combo);
+  const tier = comboTier(combo);
 
   // A past card is drawn by the same components with its saved result, so every control stays locked
   const renderQuiz = (it: FeedItem, res: Result | null, { word, chunk, example }: CardData, readOnly: boolean) => {
@@ -298,7 +335,7 @@ export function Feed({ onClose }: Props) {
 
   return (
     <div
-      className="feed"
+      className={`feed ${tier === 3 && back === null ? 'combo-hot' : ''}`}
       onPointerDown={unlockAudio}
       onTouchStart={(e) => (touchY.current = e.touches[0].clientY)}
       onTouchEnd={(e) => {
@@ -327,9 +364,9 @@ export function Feed({ onClose }: Props) {
             ✓×{rounds}
           </span>
         )}
-        {mult > 1 ? (
-          <span key={mult} className="pill combo-pill">
-            ⚡×{combo}
+        {tier > 0 ? (
+          <span key={tier} className={`pill combo-pill t${tier}`}>
+            {tier === 1 ? '⚡' : tier === 2 ? '🔥' : '🔥🔥'}×{combo}
           </span>
         ) : (
           <span className="feed-count">
@@ -369,10 +406,17 @@ export function Feed({ onClose }: Props) {
         )}
         {item && (word || chunk || isSpecial(item.format)) && item.format !== 'goal' && (
           // Stays mounted while a past card is shown, so a half-typed answer survives the trip back
-          <div key={item.key} className={`feed-card ${leaving ? 'leaving' : 'entering'} ${back !== null ? 'parked' : ''} ${result ? `res-${result.answer}` : ''} fmt-${item.format}`}>
-            {((result?.answer === 'good' && combo > 0 && combo % 3 === 0) || roundDone > 0) && <Confetti />}
+          <div key={item.key} className={`feed-card ${leaving ? 'leaving' : 'entering'} ${back !== null ? 'parked' : ''} ${result ? `res-${result.answer}` : ''} ${item.golden ? 'golden' : ''} fmt-${item.format}`}>
+            {item.golden && <span className="pill golden-pill">✨ Золотая карточка · ×{GOLDEN_MULT} XP</span>}
+            {result?.answer === 'good' &&
+              (comboMilestone(combo) || roundDone > 0 || (result.bonus ?? 1) > 1 ? <Confetti count={result.golden ? 160 : 90} /> : <Confetti count={24} power={0.55} />)}
             {renderCard()}
-            {!!result?.xp && <span className="xp-float">+{result.xp} XP</span>}
+            {!!result?.xp && (
+              <span className={`xp-float ${(result.bonus ?? 1) > 1 ? 'big' : ''}`}>
+                +{result.xp} XP{result.golden ? ' ✨' : (result.bonus ?? 1) > 1 ? ` · КРИТ ×${result.bonus}` : ''}
+              </span>
+            )}
+            {broke > 0 && <span className="combo-break">💔 Серия ×{broke} сгорела</span>}
           </div>
         )}
         {seen && (
@@ -384,7 +428,7 @@ export function Feed({ onClose }: Props) {
       </div>
 
       {result && back === null && (word || (chunk && example)) && (
-        <ResultSheet result={result} {...answerText(item!, live)} combo={combo} round={roundDone} onNext={goNext} />
+        <ResultSheet result={result} {...answerText(item!, live)} combo={combo} broke={broke} round={roundDone} onNext={goNext} />
       )}
       {seen && (
         <ReviewSheet
@@ -406,6 +450,7 @@ export function Feed({ onClose }: Props) {
           }}
         />
       )}
+      {levelUp !== null && <LevelUpScreen level={levelUp} onDone={() => setLevelUp(null)} />}
       {showChest && (
         <ChestScreen
           onDone={() => {
@@ -420,8 +465,9 @@ export function Feed({ onClose }: Props) {
 }
 
 /** Mint «Richtig!» or soft pink «Почти!» sheet under the card. */
-function ResultSheet({ result, solution, meaning, combo, round, onNext }: { result: Result; solution: string; meaning: string; combo: number; round: number; onNext: () => void }) {
+function ResultSheet({ result, solution, meaning, combo, broke, round, onNext }: { result: Result; solution: string; meaning: string; combo: number; broke: number; round: number; onNext: () => void }) {
   const mult = comboMultiplier(combo);
+  const bonus = result.bonus ?? 1;
   const roundLine = round > 0 ? `Раунд ${round} пройден! +${ROUND_BONUS_XP} XP` : '';
   if (result.answer === 'good') {
     return (
@@ -431,7 +477,7 @@ function ResultSheet({ result, solution, meaning, combo, round, onNext }: { resu
           <div>
             <div className="ttl">Richtig!</div>
             <div className="sub">
-              +{result.xp ?? 0} XP{mult > 1 ? ` · комбо ×${combo}` : ''}
+              +{result.xp ?? 0} XP{result.golden ? ` · золотая ×${bonus}` : bonus > 1 ? ` · крит ×${bonus}` : ''}{mult > 1 ? ` · комбо ×${combo}` : ''}
             </div>
             {roundLine && <div className="sub" style={{ fontWeight: 800, opacity: 1 }}>{roundLine}</div>}
           </div>
@@ -447,7 +493,7 @@ function ResultSheet({ result, solution, meaning, combo, round, onNext }: { resu
       <div className="head">
         <Mascot size={84} mood={result.answer === 'hard' ? 'wait' : 'sad'} />
         <div>
-          <div className="ttl">{result.answer === 'hard' ? 'Почти! 💪' : 'Не совсем'}</div>
+          <div className="ttl">{result.answer === 'hard' ? 'Почти! 💪' : broke ? `Серия ×${broke} сгорела` : 'Не совсем'}</div>
           <div className="sub">
             Правильно: <b>{solution}</b> — {meaning}{/[.!?…]$/.test(meaning) ? '' : '.'}{result.answer === 'again' ? ' Карточка вернётся через пару карточек.' : ''}
           </div>

@@ -36,6 +36,7 @@ export interface FeedItem {
   blitz?: string[]; // noun ids for the article blitz
   milestone?: number;
   left?: number; // new cards still waiting, for the 'more' offer
+  golden?: boolean; // bonus card: a correct answer pays GOLDEN_MULT × XP
 }
 
 export interface Session {
