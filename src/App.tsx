@@ -17,6 +17,7 @@ import { KeyStep } from './components/KeyStep';
 import { MascotStep } from './components/MascotStep';
 import { MascotGallery } from './components/Mascot';
 import { Game } from './components/Games';
+import { hardReload, useUpdateAvailable } from './lib/update';
 
 export type View =
   | { name: Tab }
@@ -27,7 +28,42 @@ export type View =
   | { name: 'chest' }
   | { name: 'game'; game: GameId };
 
+/** Top banner when a newer version is deployed than the one running (stuck service worker cache). */
+function UpdateBanner() {
+  const available = useUpdateAvailable();
+  const [hidden, setHidden] = useState(false);
+  const [busy, setBusy] = useState(false);
+  if (!available || hidden) return null;
+  return (
+    <div className="update-banner" role="status">
+      <span>Вышла новая версия</span>
+      <button
+        className="chunky c-card"
+        disabled={busy}
+        onClick={() => {
+          setBusy(true);
+          void hardReload();
+        }}
+      >
+        {busy ? 'Обновляю…' : 'Обновить'}
+      </button>
+      <button className="update-close" onClick={() => setHidden(true)} aria-label="Скрыть">
+        ✕
+      </button>
+    </div>
+  );
+}
+
 export function App() {
+  return (
+    <>
+      <UpdateBanner />
+      <Screens />
+    </>
+  );
+}
+
+function Screens() {
   const [view, setView] = useState<View>({ name: 'home' });
   const sync = useSync();
   const { geminiKey, mascot } = useData().settings;

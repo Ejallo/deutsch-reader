@@ -8,6 +8,7 @@ import { set } from 'idb-keyval';
 import { initSync, takeLoginFromUrl } from './lib/sync';
 import { startGoalReporting } from './lib/push';
 import { installAudioUnlock } from './lib/sfx';
+import { startUpdateChecks } from './lib/update';
 import './styles.css';
 
 // iOS only re-checks the service worker on a cold start, so ask for updates
@@ -33,6 +34,7 @@ async function start() {
   // Ask iOS not to evict local data; sync is the backup if it does anyway
   void navigator.storage?.persist?.();
   installAudioUnlock();
+  startUpdateChecks();
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <App />

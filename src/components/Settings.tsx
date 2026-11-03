@@ -4,6 +4,7 @@ import { getData, importData, updateSettings, useData, type AppData } from '../l
 import { listModels, pickDefaultModel, type ModelInfo } from '../lib/gemini';
 import { connectionCode, disconnect, getConnection, syncNow, useSync } from '../lib/sync';
 import { Setup } from './Setup';
+import { checkForUpdate, hardReload, useUpdateAvailable } from '../lib/update';
 import type { Theme } from '../lib/theme';
 import { disableReminders, enableReminders, isIos, isStandalone, pushDiagnostics, pushSupported, reminderPrefs, sendTestReminder } from '../lib/push';
 import type { ReactNode } from 'react';
@@ -27,10 +28,33 @@ export function Settings({ onTab, onLearn }: Props) {
       <ReminderSection />
       <SyncSection />
       <DataSection />
-      <p className="muted small" style={{ textAlign: 'center', marginTop: 20 }}>
-        Версия {__BUILD__} UTC
-      </p>
+      <VersionLine />
       <TabBar active="settings" onTab={onTab} onLearn={onLearn} />
+    </div>
+  );
+}
+
+/** Build stamp plus a manual check, for when the automatic update didn't arrive. */
+function VersionLine() {
+  const available = useUpdateAvailable();
+  const [state, setState] = useState<'idle' | 'checking' | 'latest' | 'offline'>('idle');
+  const check = async () => {
+    setState('checking');
+    const newer = await checkForUpdate();
+    setState(newer ? 'idle' : navigator.onLine ? 'latest' : 'offline');
+  };
+  return (
+    <div className="version-line">
+      <p className="muted small">Версия {__BUILD__} UTC</p>
+      {available ? (
+        <button className="chunky c-butter" onClick={() => void hardReload()}>
+          Вышла новая версия · Обновить
+        </button>
+      ) : (
+        <button className="link" disabled={state === 'checking'} onClick={() => void check()}>
+          {state === 'checking' ? 'Проверяю…' : state === 'latest' ? 'У тебя последняя версия ✓' : state === 'offline' ? 'Нет сети — проверь позже' : 'Проверить обновления'}
+        </button>
+      )}
     </div>
   );
 }

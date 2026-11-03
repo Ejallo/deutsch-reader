@@ -4,15 +4,25 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 // GitHub Pages serves the app from /<repo-name>/
 const base = '/deutsch-reader/';
+const build = new Date().toISOString().slice(0, 16).replace('T', ' ');
 
 export default defineConfig({
   base,
   define: {
     // Shown in settings to tell which version is running
-    __BUILD__: JSON.stringify(new Date().toISOString().slice(0, 16).replace('T', ' ')),
+    __BUILD__: JSON.stringify(build),
   },
   plugins: [
     react(),
+    // version.json next to the app: a stuck old version fetches it from the network and learns it is outdated.
+    // JSON isn't in the service worker's precache globs, so it is never served from cache.
+    {
+      name: 'version-file',
+      apply: 'build',
+      generateBundle() {
+        this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ build }) });
+      },
+    },
     VitePWA({
       registerType: 'autoUpdate',
       // Custom service worker (src/sw.js) so it can show reminder notifications
