@@ -6,7 +6,24 @@ let ctx: AudioContext | null = null;
 /** iOS only lets audio start from a user gesture, so call this on the first tap. */
 export function unlockAudio() {
   if (!ctx) ctx = new AudioContext();
-  if (ctx.state === 'suspended') void ctx.resume();
+  // iOS also suspends ("interrupted") the context after the app goes to background
+  if (ctx.state === 'running') return;
+  void ctx.resume().catch(() => undefined);
+  // Playing a silent buffer inside the gesture is what actually wakes audio on iOS
+  const src = ctx.createBufferSource();
+  src.buffer = ctx.createBuffer(1, 1, 22050);
+  src.connect(ctx.destination);
+  src.start(0);
+}
+
+/**
+ * A touch pointerdown isn't a user activation on iOS, so unlock on the events that
+ * are (touchend, click, keydown). Capture phase runs before the answer's own handler.
+ */
+export function installAudioUnlock() {
+  for (const ev of ['touchend', 'click', 'keydown'] as const) {
+    document.addEventListener(ev, unlockAudio, { capture: true, passive: true });
+  }
 }
 
 function tone(freq: number, start: number, dur: number, type: OscillatorType = 'sine', gain = 0.18) {
@@ -24,6 +41,12 @@ function tone(freq: number, start: number, dur: number, type: OscillatorType = '
   osc.stop(t + dur + 0.02);
 }
 
+/** Soft bell: sine fundamental plus a quieter inharmonic overtone, long decay. */
+function bell(freq: number, start: number, dur = 0.6, gain = 0.16) {
+  tone(freq, start, dur, 'sine', gain);
+  tone(freq * 2.76, start, dur * 0.4, 'sine', gain * 0.18);
+}
+
 const enabled = () => getData().settings.sound && !!ctx;
 
 export const sfx = {
@@ -31,17 +54,18 @@ export const sfx = {
     if (!enabled()) return;
     // Pitch climbs with the combo, so a streak literally sounds higher
     const base = 660 * Math.pow(2, Math.min(combo, 8) / 12);
-    tone(base, 0, 0.12, 'triangle');
-    tone(base * 1.5, 0.08, 0.18, 'triangle');
+    bell(base, 0, 0.45);
+    bell(base * 1.5, 0.09, 0.7);
   },
   almost() {
     if (!enabled()) return;
-    tone(520, 0, 0.15, 'triangle');
+    bell(587, 0, 0.5, 0.13);
   },
   wrong() {
     if (!enabled()) return;
-    tone(220, 0, 0.18, 'sawtooth', 0.08);
-    tone(180, 0.1, 0.22, 'sawtooth', 0.08);
+    // Low, soft falling pair: clearly "no" without the harsh buzz
+    tone(330, 0, 0.22, 'sine', 0.12);
+    tone(262, 0.12, 0.35, 'sine', 0.12);
   },
   swipe() {
     if (!enabled()) return;

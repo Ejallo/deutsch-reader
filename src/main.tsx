@@ -7,6 +7,7 @@ import { loadCache } from './lib/gemini';
 import { set } from 'idb-keyval';
 import { initSync, takeLoginFromUrl } from './lib/sync';
 import { startGoalReporting } from './lib/push';
+import { installAudioUnlock } from './lib/sfx';
 import './styles.css';
 
 // iOS only re-checks the service worker on a cold start, so ask for updates
@@ -31,6 +32,7 @@ async function start() {
   if (login === 'error') sessionStorage.setItem('loginError', '1');
   // Ask iOS not to evict local data; sync is the backup if it does anyway
   void navigator.storage?.persist?.();
+  installAudioUnlock();
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <App />
