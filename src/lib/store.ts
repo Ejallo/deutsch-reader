@@ -76,6 +76,8 @@ export interface FormLink extends Rec {
 
 export type LearnMode = 'all' | 'words' | 'chunks';
 
+export type MascotId = 'kater' | 'fuchs' | 'beagle' | 'eule' | 'umlaut' | 'kaktus' | 'wurst' | 'klecks';
+
 export interface Settings extends Rec {
   geminiKey: string;
   geminiModel: string;
@@ -87,6 +89,7 @@ export interface Settings extends Rec {
   readerSpacing: 'normal' | 'loose';
   theme: Theme;
   learnMode: LearnMode; // what the feed shows
+  mascot: MascotId | ''; // '' = not chosen yet, the first run asks
 }
 
 export interface Stats extends Rec {
@@ -128,7 +131,7 @@ export const emptyData = (): AppData => ({
   words: {},
   chunks: {},
   forms: {},
-  settings: { geminiKey: '', geminiModel: '', newPerDay: DEFAULT_NEW_PER_DAY, sound: true, listening: true, readerFont: 'onest', readerSize: 19, readerSpacing: 'normal', theme: 'time', learnMode: 'all', updatedAt: 0 },
+  settings: { geminiKey: '', geminiModel: '', newPerDay: DEFAULT_NEW_PER_DAY, sound: true, listening: true, readerFont: 'onest', readerSize: 19, readerSpacing: 'normal', theme: 'time', learnMode: 'all', mascot: '', updatedAt: 0 },
   progress: { day: '', newIntroduced: 0, reviewed: 0, updatedAt: 0 },
   stats: { xp: 0, streak: 0, lastGoalDay: '', freezeUsedDay: '', milestones: [], gems: 0, freezes: 0, chestDay: '', boostUntil: 0, updatedAt: 0 },
 });

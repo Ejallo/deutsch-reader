@@ -48,18 +48,7 @@ export function TopBar({ title, back, onBack, right }: { title: string; back?: s
   );
 }
 
-/** Placeholder mascot «Брецель». */
-export function Mascot({ size = 130 }: { size?: number }) {
-  return (
-    <div className="mascot" style={{ width: size, height: size }} aria-hidden="true">
-      <i className="eye" style={{ left: '26%' }} />
-      <i className="eye" style={{ right: '26%' }} />
-      <i className="cheek" style={{ left: '15%' }} />
-      <i className="cheek" style={{ right: '15%' }} />
-      <i className="mouth" />
-    </div>
-  );
-}
+export { Mascot } from './Mascot';
 
 export const articleClass = (article: string) => (article === 'der' || article === 'die' || article === 'das' ? `c-${article}` : '');
 

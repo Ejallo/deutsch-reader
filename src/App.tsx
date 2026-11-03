@@ -14,6 +14,7 @@ import { useSync } from './lib/sync';
 import { useApplyTheme } from './lib/theme';
 import { useData } from './lib/store';
 import { KeyStep } from './components/KeyStep';
+import { MascotStep } from './components/MascotStep';
 
 export type View =
   | { name: Tab }
@@ -26,7 +27,8 @@ export type View =
 export function App() {
   const [view, setView] = useState<View>({ name: 'home' });
   const sync = useSync();
-  const hasKey = !!useData().settings.geminiKey;
+  const { geminiKey, mascot } = useData().settings;
+  const hasKey = !!geminiKey;
   const [keySkipped, setKeySkipped] = useState(false);
   useApplyTheme();
   // Setup is shown until the device is connected or the user chose local-only mode
@@ -53,6 +55,7 @@ export function App() {
 
   if (setupDone === null) return null;
   if (!setupDone && sync.status === 'off') return <Setup onDone={finishSetup} />;
+  if (!mascot && sync.status !== 'syncing' && view.name === 'home') return <MascotStep />;
   // Ask for the Gemini key right after setup (a synced device gets it from sync instead)
   if (!hasKey && !keySkipped && sync.status !== 'syncing' && sync.lastSync === 0 && view.name === 'home')
     return <KeyStep onDone={() => undefined} onSkip={() => setKeySkipped(true)} />;

@@ -9,6 +9,7 @@ import { disableReminders, enableReminders, isIos, isStandalone, pushDiagnostics
 import type { ReactNode } from 'react';
 import { TabBar, type Tab } from './TabBar';
 import { StatStrip, TopBar, type Accent } from './ui';
+import { DEFAULT_MASCOT, MascotPicker } from './Mascot';
 
 interface Props {
   onTab: (t: Tab) => void;
@@ -19,6 +20,7 @@ export function Settings({ onTab, onLearn }: Props) {
   return (
     <div className="screen">
       <TopBar title="Настройки" right={<StatStrip />} />
+      <MascotSection />
       <ThemeSection />
       <LearnSection />
       <GeminiSection />
@@ -105,6 +107,15 @@ function GeminiSection() {
       )}
       {msg && <p className="small">{msg}</p>}
       {error && <p className="error">{error}</p>}
+    </Group>
+  );
+}
+
+function MascotSection() {
+  const { settings } = useData();
+  return (
+    <Group title="Персонаж" flush>
+      <MascotPicker value={settings.mascot || DEFAULT_MASCOT} onPick={(id) => updateSettings({ mascot: id })} />
     </Group>
   );
 }
