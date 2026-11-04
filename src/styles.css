@@ -2825,26 +2825,326 @@ button.link.danger {
   width: 100%;
   max-width: 260px;
 }
-.boss-face {
-  font-size: 76px;
-  line-height: 1;
-  animation: boss-idle 2s ease-in-out infinite;
+.boss-stage {
+  position: relative;
+  display: flex;
+  justify-content: center;
 }
-.boss-face.hit {
-  animation: boss-hit 0.4s ease, boss-idle 2s ease-in-out 0.4s infinite;
+.boss-dmg {
+  position: absolute;
+  top: 10%;
+  right: 6%;
+  font: 800 26px var(--display);
+  color: var(--danger, #e5484d);
+  text-shadow: 0 2px 0 var(--card);
+  pointer-events: none;
+  animation: boss-dmg 0.8s ease-out forwards;
 }
-@keyframes boss-idle {
-  50% {
-    transform: translateY(-6px) rotate(3deg);
+@keyframes boss-dmg {
+  from {
+    transform: translateY(6px) scale(0.6);
+    opacity: 0;
+  }
+  25% {
+    transform: translateY(-6px) scale(1.2);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(-34px) scale(1);
+    opacity: 0;
   }
 }
-@keyframes boss-hit {
-  20% {
-    transform: translateX(-10px) scale(0.9);
-    filter: brightness(2) saturate(0);
+
+/* --- Boss art (components/Boss.tsx) --- */
+.boss-art {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+  transform-origin: 50% 100%;
+}
+.boss-art svg {
+  overflow: visible;
+}
+.boss-art g {
+  transform-box: fill-box;
+}
+.boss-art .b-body {
+  transform-origin: 50% 100%;
+  animation: b-breathe 2.6s ease-in-out infinite;
+}
+.boss-art .b-head {
+  transform-origin: 50% 100%;
+  animation: b-bob 2.6s ease-in-out infinite;
+}
+.boss-art .b-eyes {
+  transform-origin: 50% 50%;
+  animation: b-blink 4.2s infinite;
+}
+.boss-art .b-ear-l {
+  transform-origin: 100% 70%;
+  animation: b-ear-l 5s ease-in-out infinite;
+}
+.boss-art .b-ear-r {
+  transform-origin: 0% 70%;
+  animation: b-ear-r 5s ease-in-out 0.15s infinite;
+}
+.boss-art .b-jaw {
+  transform-origin: 50% 0%;
+}
+.boss-art.m-idle {
+  animation: b-sway 3.2s ease-in-out infinite;
+}
+@keyframes b-breathe {
+  50% {
+    transform: scale(1.025, 1.04);
+  }
+}
+@keyframes b-bob {
+  50% {
+    transform: translateY(2px);
+  }
+}
+@keyframes b-blink {
+  0%,
+  90%,
+  100% {
+    transform: scaleY(1);
+  }
+  94% {
+    transform: scaleY(0.1);
+  }
+}
+@keyframes b-ear-l {
+  0%,
+  80%,
+  100% {
+    transform: rotate(0);
+  }
+  84% {
+    transform: rotate(-12deg);
+  }
+  88% {
+    transform: rotate(4deg);
+  }
+}
+@keyframes b-ear-r {
+  0%,
+  80%,
+  100% {
+    transform: rotate(0);
+  }
+  84% {
+    transform: rotate(12deg);
+  }
+  88% {
+    transform: rotate(-4deg);
+  }
+}
+@keyframes b-sway {
+  50% {
+    transform: translateY(-4px) rotate(1.5deg);
+  }
+}
+
+/* low HP: trembling, ears down, darting pupils, sweat */
+.boss-art.m-scared {
+  animation: b-tremble 0.18s linear infinite;
+}
+.boss-art.m-scared .b-ear-l {
+  animation: none;
+  transform: rotate(-30deg);
+}
+.boss-art.m-scared .b-ear-r {
+  animation: none;
+  transform: rotate(30deg);
+}
+.boss-art.m-scared .b-body,
+.boss-art.m-scared .b-head {
+  animation-duration: 0.9s;
+}
+.boss-art.m-scared .b-pupils {
+  animation: b-dart 1.4s steps(1) infinite;
+}
+.boss-art.m-scared .b-jaw {
+  animation: b-chatter 0.2s linear infinite;
+}
+.boss-art .b-sweat {
+  transform-origin: 50% 0;
+  animation: b-sweat 1.3s ease-in infinite;
+}
+@keyframes b-tremble {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-1.5px) rotate(-0.6deg);
+  }
+  75% {
+    transform: translateX(1.5px) rotate(0.6deg);
+  }
+}
+@keyframes b-dart {
+  0% {
+    transform: translateX(0);
+  }
+  30% {
+    transform: translateX(-4px);
   }
   60% {
-    transform: translateX(8px) scale(1.05);
+    transform: translateX(4px);
+  }
+}
+@keyframes b-chatter {
+  50% {
+    transform: translateY(1.5px);
+  }
+}
+@keyframes b-sweat {
+  0% {
+    transform: translateY(-4px) scale(0.4);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    transform: translateY(26px) scale(0.8);
+    opacity: 0;
+  }
+}
+
+/* correct answer: white flash and recoil */
+.boss-art.m-hit {
+  animation: b-hit 0.45s ease;
+}
+.boss-art.m-hit .b-ear-l {
+  animation: none;
+  transform: rotate(-18deg);
+}
+.boss-art.m-hit .b-ear-r {
+  animation: none;
+  transform: rotate(18deg);
+}
+@keyframes b-hit {
+  15% {
+    transform: translateX(-12px) rotate(-6deg) scale(0.92);
+    filter: brightness(2.4) saturate(0);
+  }
+  45% {
+    transform: translateX(8px) rotate(3deg) scale(1.04);
+    filter: none;
+  }
+  70% {
+    transform: translateX(-3px);
+  }
+}
+
+/* wrong answer: hops at you and cackles */
+.boss-art.m-laugh {
+  animation: b-laugh 0.7s ease;
+}
+.boss-art.m-gloat {
+  animation: b-gloat 1s ease-in-out infinite;
+}
+.boss-art.m-laugh .b-jaw,
+.boss-art.m-gloat .b-jaw {
+  animation: b-cackle 0.16s ease-in-out infinite;
+}
+.boss-art .b-glint {
+  animation: b-glint 0.7s ease-in-out infinite alternate;
+}
+@keyframes b-laugh {
+  20% {
+    transform: translateY(-14px) scale(1.12);
+  }
+  40% {
+    transform: translateY(0) scale(1.08);
+  }
+  60% {
+    transform: translateY(-7px) scale(1.1);
+  }
+  80% {
+    transform: translateY(0) scale(1.04);
+  }
+}
+@keyframes b-gloat {
+  50% {
+    transform: translateY(-6px) rotate(-2deg);
+  }
+}
+@keyframes b-cackle {
+  50% {
+    transform: translateY(3px);
+  }
+}
+@keyframes b-glint {
+  to {
+    opacity: 0.2;
+  }
+}
+
+/* defeated: flash, topple, stars */
+.boss-art.m-dead {
+  animation: b-fall 0.9s cubic-bezier(0.5, 0, 0.7, 1.4) forwards;
+}
+.boss-art.m-dead .b-body,
+.boss-art.m-dead .b-head,
+.boss-art.m-dead .b-ear {
+  animation: none;
+}
+.boss-art.m-dead .b-head {
+  transform-origin: 50% 100%;
+  transform: rotate(-8deg);
+}
+@keyframes b-fall {
+  0% {
+    filter: brightness(2.4) saturate(0);
+  }
+  25% {
+    transform: translateY(-10px) rotate(4deg);
+    filter: none;
+  }
+  100% {
+    transform: translateY(6px) rotate(-14deg);
+    filter: saturate(0.6);
+  }
+}
+.b-stars {
+  position: absolute;
+  inset: -4% 20% auto;
+  height: 30%;
+  line-height: 1;
+  animation: b-orbit 1.6s linear infinite;
+}
+.b-stars i {
+  position: absolute;
+  font-style: normal;
+  color: #f5c542;
+  font-size: calc(1em);
+}
+.b-stars i:nth-child(1) {
+  left: 0;
+  top: 40%;
+}
+.b-stars i:nth-child(2) {
+  left: 45%;
+  top: 0;
+}
+.b-stars i:nth-child(3) {
+  right: 0;
+  top: 40%;
+}
+@keyframes b-orbit {
+  50% {
+    transform: translateX(8%) scaleY(0.7);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .boss-art,
+  .boss-art * {
+    animation: none !important;
   }
 }
 .boss-name {
@@ -3022,4 +3322,8 @@ button.link.danger {
 }
 .scan-buttons .chunky {
   flex: 1;
+}
+.game-big .boss-art {
+  display: block;
+  margin: 4px auto 26px;
 }

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Boss, type BossMood } from './Boss';
 import { currentStreak, todayKey, useData, type AppData, type MascotId } from '../lib/store';
 
 export const MASCOTS: { id: MascotId; de: string; ru: string }[] = [
@@ -400,6 +401,14 @@ export function MascotGallery() {
           </b>
         ))}
         {MASCOTS.flatMap((m) => moods.map(([mood]) => <Mascot key={m.id + mood} id={m.id} mood={mood} size={76} />))}
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, justifyContent: 'center', marginTop: 24 }}>
+        {(['idle', 'hit', 'laugh', 'scared', 'gloat', 'dead'] as BossMood[]).map((m) => (
+          <div key={m} style={{ textAlign: 'center', fontSize: 13, fontWeight: 700 }}>
+            <Boss mood={m} size={140} />
+            <div>{m}</div>
+          </div>
+        ))}
       </div>
     </div>
   );

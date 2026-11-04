@@ -1,3 +1,4 @@
+import { Boss } from './Boss';
 import { currentStreak, DAILY_GOAL, liveChunks, liveTexts, streakDays, todayKey, todayProgress, unlockedWords, updateSettings, useData, xpBoostActive, type GameId, type LearnMode } from '../lib/store';
 import { levelOf } from '../lib/gamify';
 import { lastOpenedText, levelAccent, PBar, Pill, readProgress, textLevel } from './ui';
@@ -207,7 +208,7 @@ export function Home({ onTab, onLearn, onOpenText, onChest, onAddKey, onGame }: 
           <div className="games-grid">
             {(Object.keys(GAMES) as GameId[]).map((id) => (
               <button key={id} className={`game-tile ${id === 'boss' && bossWaiting ? 'boss-ready' : ''} ${gameWords < MIN_WORDS[id] ? 'locked' : ''}`} onClick={() => onGame(id)}>
-                <span className="ge">{gameWords < MIN_WORDS[id] ? '🔒' : GAMES[id].emoji}</span>
+                <span className="ge">{gameWords < MIN_WORDS[id] ? '🔒' : id === 'boss' ? <Boss size={34} /> : GAMES[id].emoji}</span>
                 <b>{GAMES[id].title}</b>
                 <small>{gameWords < MIN_WORDS[id] ? `нужно ${MIN_WORDS[id]} слов · есть ${gameWords}` : recordLine(id)}</small>
               </button>

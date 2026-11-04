@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Boss, type BossMood } from './Boss';
 import { addXp, getData, saveGameRecord, saveMedal, takeFirstGameOfDay, todayKey, unlockedWords, winBoss, type GameId, type GameRecords, type Word } from '../lib/store';
 import { fullGerman, shortTranslation, shuffle } from '../lib/feed';
 import { levelOf } from '../lib/gamify';
@@ -161,7 +162,7 @@ export function Game({ id, onClose }: { id: GameId; onClose: () => void }) {
     return (
       <div className="overlay game-intro">
         <div className="overlay-inner">
-          <div className="game-emoji">{g.emoji}</div>
+          <div className="game-emoji">{id === 'boss' ? <Boss size={130} /> : g.emoji}</div>
           <div className="chest-title">{g.title}</div>
           <p className="muted" style={{ fontWeight: 600 }}>
             {g.rules}
@@ -267,7 +268,7 @@ interface Outcome {
 }
 
 /** Result screen shared by every game; without `onAgain` there is no replay (the boss after a win). */
-function GameOver(props: { title: string; big: string; sub: string; out: Outcome; win?: boolean; gems?: number; onAgain?: () => void; onClose: () => void }) {
+function GameOver(props: { title: string; big: ReactNode; sub: string; out: Outcome; win?: boolean; gems?: number; onAgain?: () => void; onClose: () => void }) {
   const { title, big, sub, out, win, gems, onAgain, onClose } = props;
   const happy = out.record || win || !!out.medal;
   return (
@@ -638,8 +639,18 @@ function BossGame({ pool, onAgain, onClose }: GameProps) {
   const [lives, setLives] = useState(LIVES);
   const [hits, setHits] = useState(0);
   const [shake, setShake] = useState(0);
+  const [react, setReact] = useState<{ mood: BossMood; n: number } | null>(null);
+  const reactTimer = useRef(0);
   const [over, setOver] = useState<(Outcome & { win: boolean; gems: number }) | null>(null);
   const { pay, screen } = usePayout();
+  useEffect(() => () => clearTimeout(reactTimer.current), []);
+
+  /** Short reaction on top of the base mood; `dead` stays. */
+  const flash = (mood: BossMood, ms: number) => {
+    clearTimeout(reactTimer.current);
+    setReact((r) => ({ mood, n: (r?.n ?? 0) + 1 }));
+    if (mood !== 'dead') reactTimer.current = window.setTimeout(() => setReact(null), ms);
+  };
 
   const pick = (i: number) => {
     if (picked !== null || over) return;
@@ -650,15 +661,20 @@ function BossGame({ pool, onAgain, onClose }: GameProps) {
       setHits(h);
       setShake((n) => n + 1);
       sfx.correct(Math.min(h, 8));
-      if (h < hp) return void advance(450);
+      if (h < hp) {
+        flash('hit', 500);
+        return void advance(450);
+      }
+      flash('dead', 0);
       winBoss(BOSS_GEMS);
       sfx.fanfare();
-      setTimeout(() => setOver({ ...pay(BOSS_XP + h * XP_PER_WORD), win: true, gems: BOSS_GEMS }), 500);
+      setTimeout(() => setOver({ ...pay(BOSS_XP + h * XP_PER_WORD), win: true, gems: BOSS_GEMS }), 1300);
       return;
     }
     queue.current.push(w);
     const n = lives - 1;
     setLives(n);
+    flash('laugh', 750);
     if (n > 0) {
       sfx.wrong();
       advance(SHOW_WRONG_MS);
@@ -673,7 +689,7 @@ function BossGame({ pool, onAgain, onClose }: GameProps) {
       <>
         <GameOver
           title={over.win ? 'Босс повержен!' : 'Босс устоял'}
-          big={over.win ? '👹💥' : '👹'}
+          big={<Boss mood={over.win ? 'dead' : 'gloat'} size={124} />}
           sub={over.win ? 'Слова, где ты ошибался, теперь твои. Новый босс — завтра.' : `Осталось ${hp - hits} из ${hp} здоровья — попробуй ещё раз`}
           out={over}
           win={over.win}
@@ -695,8 +711,13 @@ function BossGame({ pool, onAgain, onClose }: GameProps) {
       }
     >
       <div className="boss">
-        <div key={shake} className={`boss-face ${shake ? 'hit' : ''}`}>
-          👹
+        <div className="boss-stage">
+          <Boss key={react?.n ?? 0} mood={react?.mood ?? ((hp - hits) / hp <= 0.3 ? 'scared' : 'idle')} size={150} />
+          {react?.mood === 'hit' && (
+            <span key={`dmg${shake}`} className="boss-dmg">
+              −1
+            </span>
+          )}
         </div>
         <div className="boss-name">Der Fehlerteufel</div>
         <PBar value={(hp - hits) / hp} accent="pink" h={12} />
