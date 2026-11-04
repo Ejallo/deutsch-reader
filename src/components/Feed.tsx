@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { addXp, countPractice, DAILY_GOAL, type LearnMode, getData, learningCards, recordGoal, saveChunkReview, saveReview, todayProgress, updateSettings, useData, type Chunk, type ChunkExample, type Word } from '../lib/store';
+import { addXp, countPractice, recordBestCombo, recordPerfectDay, DAILY_GOAL, type LearnMode, getData, learningCards, recordGoal, saveChunkReview, saveReview, todayProgress, updateSettings, useData, type Chunk, type ChunkExample, type Word } from '../lib/store';
 import { review, type Answer } from '../lib/srs';
-import { afterAnswer, checkChunk, checkGap, checkTiles, checkWritten, EXTRA_NEW_STEP, fullGerman, isSpecial, newSession, nextItem, shortTranslation, type FeedItem, type Format } from '../lib/feed';
+import { afterAnswer, checkChunk, checkGap, checkTiles, checkWritten, EXTRA_NEW_STEP, fullGerman, isSpecial, itemKey, newSession, nextItem, shortTranslation, type FeedItem, type Format } from '../lib/feed';
 import { comboMilestone, comboMultiplier, comboTier, GOLDEN_CHANCE, GOLDEN_GAP, GOLDEN_MULT, levelOf, rollCrit, XP } from '../lib/gamify';
 import { sfx, unlockAudio } from '../lib/sfx';
+import { closestQuest, questEvent, type Metric } from '../lib/quests';
+import { waitingCards } from './TabBar';
 import { speak } from '../lib/tts';
 import { BlitzCard, ChestCard, Confetti, MilestoneCard, SentenceCard } from './SpecialCards';
 import { ChestScreen, LessonSummary, LevelUpScreen, type SessionStats } from './Rewards';
@@ -32,6 +34,12 @@ const MODES: [LearnMode, string][] = [
 const EASY_MS: Partial<Record<Format, number>> = { 'c-choose': 4000, 'c-tiles': 9000, 'c-write': 7000, 'c-ru': 9000 };
 const BREAK_DRAMA = 5; // losing a combo at least this long gets its own moment
 const NO_GOLD: Format[] = ['intro', 'c-intro', 'sentence'];
+const FAST_MS = 3000; // a correct answer quicker than this counts for the "fast" quest
+const HINT_MAX = 5; // "ещё N до…" names a card goal only when it is this close
+// Quests the next card can move, for the "ещё N до задания" hint
+const HINT_METRICS: Metric[] = ['correct', 'chunk', 'listen', 'fast', 'writePerfect', 'tiles', 'gap', 'fixMistake'];
+// Per-format quest counters for a correct answer
+const FORMAT_METRIC: Partial<Record<Format, Metric>> = { listen: 'listen', write: 'writePerfect', 'c-tiles': 'tiles', 'c-write': 'gap' };
 
 /** The word or chunk a card is about, as it is in the data now. */
 function resolveCard(data: ReturnType<typeof getData>, item: FeedItem | null): CardData {
@@ -92,8 +100,14 @@ export function Feed({ onClose }: Props) {
       sfx.levelUp();
       setLevelUp(after);
     }
+    questEvent('xp', got);
     return got;
   };
+
+  // Session counters behind quests: cards missed earlier, perfect answers in a row, articles in a row
+  const missed = useRef(new Set<string>());
+  const cleanRun = useRef(0);
+  const articleRun = useRef(0);
 
   useEffect(() => {
     if (started.current) return; // StrictMode runs effects twice in dev
@@ -140,8 +154,10 @@ export function Feed({ onClose }: Props) {
     const n = todayProgress(getData()).reviewed;
     if (n === DAILY_GOAL) {
       recordGoal();
+      questEvent('goal');
       session.current.celebrateGoal = true;
     } else if (n > DAILY_GOAL && n % DAILY_GOAL === 0) {
+      questEvent('bonusRound');
       stats.current.xp += gainXp(ROUND_BONUS_XP);
       sfx.fanfare();
       setRoundDone(n / DAILY_GOAL);
@@ -194,16 +210,69 @@ export function Feed({ onClose }: Props) {
 
     setResult({ answer, xp, bonus, golden, ...extra });
     if (getData().settings.listening) setTimeout(() => speak(say), 250);
+    trackQuests(answer, nextCombo);
+  };
+
+  /** Feeds one answer into the quest counters (and the best-combo / perfect-day stats behind badges). */
+  const trackQuests = (answer: Answer, nextCombo: number) => {
+    if (!item) return;
+    const key = itemKey(item);
+    if (answer === 'again') missed.current.add(key);
+    else {
+      questEvent('correct');
+      if (item.chunkId) questEvent('chunk');
+      if (missed.current.delete(key)) questEvent('fixMistake');
+    }
+    if (answer === 'good') {
+      const m = FORMAT_METRIC[item.format];
+      if (m) questEvent(m);
+      if (Date.now() - shownAt.current < FAST_MS) questEvent('fast');
+    }
+    cleanRun.current = answer === 'good' ? cleanRun.current + 1 : 0;
+    questEvent('cleanRun', cleanRun.current);
+    if (item.format === 'article') {
+      articleRun.current = answer === 'good' ? articleRun.current + 1 : 0;
+      questEvent('articleRun', articleRun.current);
+    }
+    questEvent('combo', nextCombo);
+    recordBestCombo(nextCombo);
+    if (item.graded && waitingCards(getData(), 'all') === 0) questEvent('dueClear');
+    // The answer that reaches the goal judges the session's accuracy
+    if (todayProgress(getData()).reviewed === DAILY_GOAL) {
+      const st = stats.current;
+      if (st.correct / Math.max(1, st.correct + st.wrong) >= 0.9) questEvent('accurateGoal');
+      if (st.wrong === 0) recordPerfectDay();
+    }
+  };
+
+  /** The closest thing the next answers unlock: the goal, a quest or a surprise card, else the next level. */
+  const nextHint = (): string => {
+    const d = getData();
+    const s = session.current;
+    const near: [number, string][] = [];
+    const goalLeft = DAILY_GOAL - todayProgress(d).reviewed;
+    if (goalLeft > 0) near.push([goalLeft, `Ещё ${goalLeft} до цели дня`]);
+    const q = closestQuest(HINT_METRICS);
+    if (q) near.push([q.left, `Ещё ${q.left} до задания «${q.title}»`]);
+    const surprise = s.nextSurpriseAt - s.count;
+    if (surprise > 0) near.push([surprise, `Ещё ${surprise} до сюрприза 🎁`]);
+    const best = near.filter(([n]) => n <= HINT_MAX).sort((a, b) => a[0] - b[0])[0];
+    if (best) return best[1];
+    const lvl = levelOf(d.stats.xp);
+    return `Ещё ${lvl.need - lvl.into} XP до уровня ${lvl.level + 1}`;
   };
 
   const finishIntro = () => {
     if (!item) return;
     afterAnswer(session.current, item, true, 0);
     stats.current.xp += gainXp(XP.intro);
+    questEvent('newWord');
     goNext();
   };
 
   const finishSpecial = (xp: number) => {
+    if (item?.format === 'chest') questEvent('chestFeed');
+    if (item?.format === 'blitz') questEvent('blitz', xp / XP.blitzHit);
     stats.current.xp += gainXp(xp);
     setSpecialDone(true);
   };
@@ -214,6 +283,7 @@ export function Feed({ onClose }: Props) {
     countTowardGoal();
     afterAnswer(session.current, item, true, 0);
     stats.current.xp += gainXp(xp);
+    questEvent('sentence');
     setSpecialDone(true);
   };
 
@@ -428,7 +498,7 @@ export function Feed({ onClose }: Props) {
       </div>
 
       {result && back === null && (word || (chunk && example)) && (
-        <ResultSheet result={result} {...answerText(item!, live)} combo={combo} broke={broke} round={roundDone} onNext={goNext} />
+        <ResultSheet result={result} {...answerText(item!, live)} combo={combo} broke={broke} round={roundDone} hint={nextHint()} onNext={goNext} />
       )}
       {seen && (
         <ReviewSheet
@@ -465,7 +535,7 @@ export function Feed({ onClose }: Props) {
 }
 
 /** Mint «Richtig!» or soft pink «Почти!» sheet under the card. */
-function ResultSheet({ result, solution, meaning, combo, broke, round, onNext }: { result: Result; solution: string; meaning: string; combo: number; broke: number; round: number; onNext: () => void }) {
+function ResultSheet({ result, solution, meaning, combo, broke, round, hint, onNext }: { result: Result; solution: string; meaning: string; combo: number; broke: number; round: number; hint: string; onNext: () => void }) {
   const mult = comboMultiplier(combo);
   const bonus = result.bonus ?? 1;
   const roundLine = round > 0 ? `Раунд ${round} пройден! +${ROUND_BONUS_XP} XP` : '';
@@ -482,6 +552,7 @@ function ResultSheet({ result, solution, meaning, combo, broke, round, onNext }:
             {roundLine && <div className="sub" style={{ fontWeight: 800, opacity: 1 }}>{roundLine}</div>}
           </div>
         </div>
+        <div className="next-hint">{hint}</div>
         <button className="chunky c-card" onClick={onNext}>
           Дальше
         </button>
@@ -500,6 +571,7 @@ function ResultSheet({ result, solution, meaning, combo, broke, round, onNext }:
         </div>
       </div>
       {roundLine && <div className="sub" style={{ fontWeight: 800, opacity: 1 }}>{roundLine}</div>}
+      <div className="next-hint">{hint}</div>
       <button className="chunky c-card" onClick={onNext}>
         Понятно
       </button>

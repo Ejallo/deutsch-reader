@@ -18,6 +18,8 @@ import { MascotStep } from './components/MascotStep';
 import { MascotGallery } from './components/Mascot';
 import { Game } from './components/Games';
 import { hardReload, useUpdateAvailable } from './lib/update';
+import { QuestChestScreen, RewardLayer } from './components/Quests';
+import { Collection } from './components/Collection';
 
 export type View =
   | { name: Tab }
@@ -26,7 +28,9 @@ export type View =
   | { name: 'feed'; from: Tab }
   | { name: 'key' }
   | { name: 'chest' }
-  | { name: 'game'; game: GameId };
+  | { name: 'game'; game: GameId }
+  | { name: 'questChest' }
+  | { name: 'collection' };
 
 /** Top banner when a newer version is deployed than the one running (stuck service worker cache). */
 function UpdateBanner() {
@@ -59,6 +63,7 @@ export function App() {
     <>
       <UpdateBanner />
       <Screens />
+      <RewardLayer />
     </>
   );
 }
@@ -113,6 +118,10 @@ function Screens() {
       return <ChestScreen onDone={() => setView({ name: 'home' })} />;
     case 'game':
       return <Game id={view.game} onClose={() => setView({ name: 'home' })} />;
+    case 'questChest':
+      return <QuestChestScreen onDone={() => setView({ name: 'home' })} />;
+    case 'collection':
+      return <Collection onBack={() => setView({ name: 'home' })} />;
     case 'settings':
       return <Settings onTab={onTab} onLearn={learn} />;
     case 'words':
@@ -120,6 +129,6 @@ function Screens() {
     case 'library':
       return <Library onOpen={openText} onAdd={() => setView({ name: 'add' })} onLearn={learn} onTab={onTab} onAddKey={() => setView({ name: 'key' })} />;
     default:
-      return <Home onTab={onTab} onLearn={learn} onOpenText={openText} onChest={() => setView({ name: 'chest' })} onAddKey={() => setView({ name: 'key' })} onGame={(game) => setView({ name: 'game', game })} />;
+      return <Home onTab={onTab} onLearn={learn} onOpenText={openText} onChest={() => setView({ name: 'chest' })} onAddKey={() => setView({ name: 'key' })} onGame={(game) => setView({ name: 'game', game })} onQuestChest={() => setView({ name: 'questChest' })} onCollection={() => setView({ name: 'collection' })} />;
   }
 }

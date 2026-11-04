@@ -4,6 +4,7 @@ import { addXp, getData, saveGameRecord, saveMedal, takeFirstGameOfDay, todayKey
 import { fullGerman, shortTranslation, shuffle } from '../lib/feed';
 import { levelOf } from '../lib/gamify';
 import { sfx } from '../lib/sfx';
+import { questEvent } from '../lib/quests';
 import { speak } from '../lib/tts';
 import { Confetti } from './SpecialCards';
 import { LevelUpScreen } from './Rewards';
@@ -91,6 +92,9 @@ function usePayout() {
       sfx.levelUp();
       setLevelUp(after);
     }
+    // Every game pays out exactly once, so this is also where a played game is counted
+    questEvent('game');
+    questEvent('xp', xp);
     return { xp, first };
   };
   const screen = levelUp !== null ? <LevelUpScreen level={levelUp} onDone={() => setLevelUp(null)} /> : null;
@@ -135,6 +139,9 @@ function useRun(game: 'speed' | 'survival', toast: (t: string) => void) {
   const finish = (score: number) => {
     const record = saveGameRecord(game, score);
     saveMedal(game, medal.current);
+    questEvent(game === 'speed' ? 'speedScore' : 'survivalScore', score);
+    if (medal.current) questEvent('medal');
+    if (record) questEvent('record');
     const base = words.current.size * XP_PER_WORD + medalXp(medal.current) + (record ? RECORD_XP : 0);
     return { base, record, medal: medal.current, unique: words.current.size };
   };
@@ -571,6 +578,9 @@ function PairsGame({ pool, onAgain, onClose }: GameProps) {
       const record = saveGameRecord('pairs', ms);
       const medal = medalFor('pairs', ms);
       saveMedal('pairs', medal);
+      if (ms <= 40_000) questEvent('pairsFast');
+      if (medal) questEvent('medal');
+      if (record) questEvent('record');
       sfx.fanfare();
       setOver({ ms, ...pay(PAIRS_XP + medalXp(medal) + (record ? RECORD_XP : 0)), record, medal });
       return;
@@ -667,6 +677,7 @@ function BossGame({ pool, onAgain, onClose }: GameProps) {
       }
       flash('dead', 0);
       winBoss(BOSS_GEMS);
+      questEvent('bossWin');
       sfx.fanfare();
       setTimeout(() => setOver({ ...pay(BOSS_XP + h * XP_PER_WORD), win: true, gems: BOSS_GEMS }), 1300);
       return;

@@ -106,6 +106,33 @@ export interface Stats extends Rec {
   medals: GameRecords; // best medal per game: 0 none, 1 bronze, 2 silver, 3 gold
   bossWonDay: string; // day the daily boss was beaten
   gamesDay: string; // day the first mini-game was played (it pays double)
+  badges: Record<string, number>; // badge id -> when it was earned
+  badgesSeeded: boolean; // badges already reached before the collection existed were given silently
+  bossWins: number;
+  questsDone: number;
+  bestCombo: number;
+  perfectDays: number; // daily goal met without a single mistake
+  bestMonthQuests: number;
+}
+
+export interface QuestItem {
+  id: string;
+  progress: number;
+  done: boolean;
+}
+
+/** Today's three quests, this week's challenge and the counters around them. */
+export interface Quests extends Rec {
+  day: string;
+  items: QuestItem[];
+  rerolled: boolean; // one swap a day
+  chest: 'none' | 'ready' | 'claimed'; // chest for finishing all three
+  week: string; // Monday of the week the challenge belongs to
+  weekly: QuestItem | null;
+  month: string; // YYYY-MM
+  monthCount: number;
+  allDoneStreak: number; // days in a row with all three quests done
+  lastAllDoneDay: string;
 }
 
 export type GameId = 'speed' | 'survival' | 'pairs' | 'boss';
@@ -134,6 +161,7 @@ export interface AppData {
   settings: Settings;
   progress: Progress;
   stats: Stats;
+  quests: Quests;
 }
 
 export const DEFAULT_NEW_PER_DAY = 10;
@@ -146,7 +174,8 @@ export const emptyData = (): AppData => ({
   forms: {},
   settings: { geminiKey: '', geminiModel: '', newPerDay: DEFAULT_NEW_PER_DAY, sound: true, listening: true, readerFont: 'onest', readerSize: 19, readerSpacing: 'normal', theme: 'time', learnMode: 'all', mascot: '', updatedAt: 0 },
   progress: { day: '', newIntroduced: 0, reviewed: 0, updatedAt: 0 },
-  stats: { xp: 0, streak: 0, lastGoalDay: '', freezeUsedDay: '', milestones: [], gems: 0, freezes: 0, chestDay: '', boostUntil: 0, records: { speed: 0, survival: 0, pairs: 0 }, medals: { speed: 0, survival: 0, pairs: 0 }, bossWonDay: '', gamesDay: '', updatedAt: 0 },
+  stats: { xp: 0, streak: 0, lastGoalDay: '', freezeUsedDay: '', milestones: [], gems: 0, freezes: 0, chestDay: '', boostUntil: 0, records: { speed: 0, survival: 0, pairs: 0 }, medals: { speed: 0, survival: 0, pairs: 0 }, bossWonDay: '', gamesDay: '', badges: {}, badgesSeeded: false, bossWins: 0, questsDone: 0, bestCombo: 0, perfectDays: 0, bestMonthQuests: 0, updatedAt: 0 },
+  quests: { day: '', items: [], rerolled: false, chest: 'none', week: '', weekly: null, month: '', monthCount: 0, allDoneStreak: 0, lastAllDoneDay: '', updatedAt: 0 },
 });
 
 const dayShift = (days: number) => {
@@ -220,6 +249,7 @@ export function mergeData(a: AppData, b: AppData): AppData {
     settings: { ...base.settings, ...settings },
     progress: newer(a.progress, b.progress, base.progress),
     stats: mergeStats(base.stats, newer(a.stats, b.stats, base.stats)),
+    quests: { ...base.quests, ...newer(a.quests, b.quests, base.quests) },
   };
 }
 
@@ -274,6 +304,18 @@ function update(fn: (d: AppData) => AppData) {
   emit(true);
 }
 
+/** Changes made by other modules (quests, badges) that own their slice of the data. */
+export const updateData = update;
+
+// Things done in the dictionary that quests count; quests.ts listens, so the store doesn't import it
+export type StoreEvent = 'wordAdd' | 'markKnown' | 'chunkAdd';
+const storeEventListeners = new Set<(e: StoreEvent) => void>();
+export function onStoreEvent(l: (e: StoreEvent) => void) {
+  storeEventListeners.add(l);
+  return () => storeEventListeners.delete(l);
+}
+const storeEvent = (e: StoreEvent) => storeEventListeners.forEach((l) => l(e));
+
 const now = () => Date.now();
 export const lemmaKey = (lemma: string) => lemma.trim().toLowerCase();
 
@@ -291,6 +333,10 @@ export function deleteText(id: string) {
 export function saveWord(form: string, w: Omit<Word, 'id' | 'createdAt' | 'updatedAt'>) {
   const key = lemmaKey(w.lemma);
   const t = now();
+  const before = data.words[key];
+  const existed = !!before && !before.deleted;
+  if (!existed) storeEvent('wordAdd');
+  else if (w.status === 'known' && before.status !== 'known') storeEvent('markKnown');
   update((d) => {
     const prev = d.words[key];
     const alive = prev && !prev.deleted;
@@ -353,6 +399,7 @@ export function saveReview(key: string, card: SrsCard, wasNew: boolean) {
 export function saveChunk(c: Omit<Chunk, 'id' | 'createdAt' | 'updatedAt' | 'card'>): string {
   const id = lemmaKey(c.text);
   const t = now();
+  if (!data.chunks[id] || data.chunks[id].deleted) storeEvent('chunkAdd');
   update((d) => {
     const prev = d.chunks[id];
     const alive = prev && !prev.deleted;
@@ -477,7 +524,16 @@ export function takeFirstGameOfDay(): boolean {
 }
 
 export function winBoss(gems: number) {
-  update((d) => ({ ...d, stats: { ...d.stats, gems: d.stats.gems + gems, bossWonDay: todayKey(), updatedAt: now() } }));
+  update((d) => ({ ...d, stats: { ...d.stats, gems: d.stats.gems + gems, bossWonDay: todayKey(), bossWins: d.stats.bossWins + 1, updatedAt: now() } }));
+}
+
+export function recordBestCombo(combo: number) {
+  if (combo <= data.stats.bestCombo) return;
+  update((d) => ({ ...d, stats: { ...d.stats, bestCombo: combo, updatedAt: now() } }));
+}
+
+export function recordPerfectDay() {
+  update((d) => ({ ...d, stats: { ...d.stats, perfectDays: d.stats.perfectDays + 1, updatedAt: now() } }));
 }
 
 export function markMilestone(n: number) {
@@ -485,6 +541,7 @@ export function markMilestone(n: number) {
 }
 
 export function updateWord(key: string, patch: Partial<Pick<Word, 'translation' | 'meanings' | 'status'>>) {
+  if (patch.status === 'known' && data.words[key]?.status !== 'known') storeEvent('markKnown');
   update((d) => ({ ...d, words: { ...d.words, [key]: { ...d.words[key], ...patch, updatedAt: now() } } }));
 }
 

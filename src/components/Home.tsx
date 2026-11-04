@@ -6,6 +6,8 @@ import { TabBar, waitingCards, type Tab } from './TabBar';
 import { SyncBadge } from './SyncBadge';
 import { Mascot, mascotMood, type Mood } from './Mascot';
 import { GAME_MIN_WORDS, GAMES, MIN_WORDS, recordLine } from './Games';
+import { QuestsCard } from './Quests';
+import { BADGES, wordTier } from '../lib/badges';
 
 interface Props {
   onTab: (t: Tab) => void;
@@ -14,6 +16,8 @@ interface Props {
   onChest: () => void;
   onAddKey: () => void;
   onGame: (id: GameId) => void;
+  onQuestChest: () => void;
+  onCollection: () => void;
 }
 
 const WEEK = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
@@ -57,7 +61,7 @@ function PetCard({ streak, left, onLearn }: { streak: number; left: number; onLe
   );
 }
 
-export function Home({ onTab, onLearn, onOpenText, onChest, onAddKey, onGame }: Props) {
+export function Home({ onTab, onLearn, onOpenText, onChest, onAddKey, onGame, onQuestChest, onCollection }: Props) {
   const data = useData();
   const streak = currentStreak(data);
   const done = streakDays(data);
@@ -74,6 +78,8 @@ export function Home({ onTab, onLearn, onOpenText, onChest, onAddKey, onGame }: 
   const chestClaimed = data.stats.chestDay === todayKey();
   const left = Math.max(0, DAILY_GOAL - p.reviewed);
   const gameWords = unlockedWords(data).length;
+  const badgesEarned = Object.keys(data.stats.badges).length;
+  const goldWords = Object.values(data.words).filter((w) => !w.deleted && wordTier(w) === 3).length;
   const bossWaiting = data.stats.bossWonDay !== todayKey() && gameWords >= GAME_MIN_WORDS;
 
   const lastId = lastOpenedText();
@@ -171,6 +177,26 @@ export function Home({ onTab, onLearn, onOpenText, onChest, onAddKey, onGame }: 
             {waiting > 0 ? `▶ Учить ${waiting} · ~${Math.max(1, Math.round(waiting / 5))} мин` : '▶ Повторить'}
           </button>
         </div>
+
+        <QuestsCard onChest={onQuestChest} />
+
+        <button className="tile goal c-pink collection-tile" onClick={onCollection}>
+          <div className="goal-head">
+            <b>🏅 Коллекция</b>
+            <span style={{ fontWeight: 700, fontSize: 14 }}>Открыть ›</span>
+          </div>
+          <div className="collection-row">
+            <span>
+              <b>
+                {badgesEarned}/{BADGES.length}
+              </b>{' '}
+              значков
+            </span>
+            <span>
+              <b>{goldWords}</b> 🥇 слов
+            </span>
+          </div>
+        </button>
 
         <div className="tile goal c-lav">
           <div className="goal-head">

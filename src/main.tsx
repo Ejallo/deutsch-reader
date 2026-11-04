@@ -9,6 +9,7 @@ import { initSync, takeLoginFromUrl } from './lib/sync';
 import { startGoalReporting } from './lib/push';
 import { installAudioUnlock } from './lib/sfx';
 import { startUpdateChecks } from './lib/update';
+import { startQuests } from './lib/quests';
 import './styles.css';
 
 // iOS only re-checks the service worker on a cold start, so ask for updates
@@ -35,6 +36,7 @@ async function start() {
   void navigator.storage?.persist?.();
   installAudioUnlock();
   startUpdateChecks();
+  startQuests();
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <App />
