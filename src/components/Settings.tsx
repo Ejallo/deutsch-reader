@@ -411,7 +411,7 @@ function DataSection() {
       const d = JSON.parse(await f.text()) as AppData;
       if (d.version !== 1 || !d.words || !d.texts) throw new Error();
       // Never let an exported (empty) key overwrite the real one
-      importData({ ...d, settings: { ...d.settings, updatedAt: 0 } });
+      importData({ ...d, settings: { ...d.settings, updatedAt: 0, fieldAt: {} } });
       setMsg('Импортировано');
     } catch {
       setMsg('Это не файл Deutsch Reader');

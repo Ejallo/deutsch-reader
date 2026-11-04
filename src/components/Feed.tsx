@@ -147,6 +147,13 @@ export function Feed({ onClose }: Props) {
     else if (chunk && item?.format === 'c-intro' && getData().settings.listening) speak(chunk.text);
   }, [item?.key]);
 
+  // Listening turned off (here or synced from another device): an unanswered listening card becomes a plain one
+  useEffect(() => {
+    if (data.settings.listening) return;
+    speechSynthesis?.cancel();
+    if (item?.format === 'listen' && !result) setItem({ ...item, format: 'choose' });
+  }, [data.settings.listening]);
+
   /** The answer that completes today's goal extends the streak and queues a celebration. */
   // After the daily goal, every next 20 cards is a bonus round with its own small reward
   const [roundDone, setRoundDone] = useState(0);

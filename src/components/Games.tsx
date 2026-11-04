@@ -556,7 +556,7 @@ function PairsGame({ pool, onAgain, onClose }: GameProps) {
     if (done.has(t.id) || over) return;
     if (!sel || sel.side === side) {
       setSel({ side, id: t.id });
-      if (side === 'de') speak(t.text);
+      if (side === 'de' && getData().settings.listening) speak(t.text);
       return;
     }
     if (sel.id === t.id) {

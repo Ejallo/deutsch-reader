@@ -90,7 +90,10 @@ export interface Settings extends Rec {
   theme: Theme;
   learnMode: LearnMode; // what the feed shows
   mascot: MascotId | ''; // '' = not chosen yet, the first run asks
+  fieldAt?: Partial<Record<SettingKey, number>>; // when each field was last changed: devices merge settings field by field
 }
+
+type SettingKey = Exclude<keyof Settings, 'updatedAt' | 'fieldAt'>;
 
 export interface Stats extends Rec {
   xp: number;
@@ -234,19 +237,37 @@ function mergeMap<T extends Rec>(a: Record<string, T>, b: Record<string, T>): Re
 const newer = <T extends Rec>(a: T | undefined, b: T | undefined, fallback: T): T =>
   !a ? (b ?? fallback) : !b ? a : b.updatedAt > a.updatedAt ? b : a;
 
-const mergeStats = (base: Stats, s: Stats): Stats => ({ ...base, ...s, records: { ...base.records, ...s.records }, medals: { ...base.medals, ...s.medals } });
+/**
+ * Settings merge field by field, so changing one setting on one device (or the app switching the Gemini model)
+ * never reverts another setting changed elsewhere. Data from older versions has no fieldAt: its updatedAt stands in.
+ */
+function mergeSettings(a: Settings | undefined, b: Settings | undefined, base: Settings): Settings {
+  if (!a || !b) return { ...base, ...(a ?? b) };
+  const at = (s: Settings, k: SettingKey) => s.fieldAt?.[k] ?? s.updatedAt ?? 0;
+  const out: Settings = { ...base, ...a, fieldAt: { ...a.fieldAt } };
+  for (const k of Object.keys({ ...base, ...a, ...b }) as (keyof Settings)[]) {
+    if (k === 'updatedAt' || k === 'fieldAt' || !(k in b)) continue;
+    if (!(k in a) || at(b, k) > at(a, k)) {
+      (out as unknown as Record<string, unknown>)[k] = b[k];
+      out.fieldAt![k] = at(b, k);
+    }
+  }
+  out.updatedAt = Math.max(a.updatedAt ?? 0, b.updatedAt ?? 0);
+  return out;
+}
+
+const mergeStats =(base: Stats, s: Stats): Stats => ({ ...base, ...s, records: { ...base.records, ...s.records }, medals: { ...base.medals, ...s.medals } });
 
 // Tolerates data written by older app versions (missing fields)
 export function mergeData(a: AppData, b: AppData): AppData {
   const base = emptyData();
-  const settings = newer(a.settings, b.settings, base.settings);
   return {
     version: 1,
     texts: mergeMap(a.texts ?? {}, b.texts ?? {}),
     words: mergeMap(a.words ?? {}, b.words ?? {}),
     chunks: mergeMap(a.chunks ?? {}, b.chunks ?? {}),
     forms: mergeMap(a.forms ?? {}, b.forms ?? {}),
-    settings: { ...base.settings, ...settings },
+    settings: mergeSettings(a.settings, b.settings, base.settings),
     progress: newer(a.progress, b.progress, base.progress),
     stats: mergeStats(base.stats, newer(a.stats, b.stats, base.stats)),
     quests: { ...base.quests, ...newer(a.quests, b.quests, base.quests) },
@@ -554,8 +575,10 @@ export function resetWordProgress(key: string) {
   });
 }
 
-export function updateSettings(patch: Partial<Omit<Settings, 'updatedAt'>>) {
-  update((d) => ({ ...d, settings: { ...d.settings, ...patch, updatedAt: now() } }));
+export function updateSettings(patch: Partial<Omit<Settings, 'updatedAt' | 'fieldAt'>>) {
+  const t = now();
+  const stamps = Object.fromEntries(Object.keys(patch).map((k) => [k, t]));
+  update((d) => ({ ...d, settings: { ...d.settings, ...patch, fieldAt: { ...d.settings.fieldAt, ...stamps }, updatedAt: t } }));
 }
 
 export function importData(incoming: AppData) {
