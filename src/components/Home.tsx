@@ -18,6 +18,7 @@ interface Props {
   onGame: (id: GameId) => void;
   onQuestChest: () => void;
   onCollection: () => void;
+  onLab: () => void;
 }
 
 const WEEK = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
@@ -61,7 +62,7 @@ function PetCard({ streak, left, onLearn }: { streak: number; left: number; onLe
   );
 }
 
-export function Home({ onTab, onLearn, onOpenText, onChest, onAddKey, onGame, onQuestChest, onCollection }: Props) {
+export function Home({ onTab, onLearn, onOpenText, onChest, onAddKey, onGame, onQuestChest, onCollection, onLab }: Props) {
   const data = useData();
   const streak = currentStreak(data);
   const done = streakDays(data);
@@ -242,6 +243,10 @@ export function Home({ onTab, onLearn, onOpenText, onChest, onAddKey, onGame, on
           </div>
         </div>
       </div>
+
+      <button className="lab-entry" onClick={onLab}>
+        🧪 <b>Тестовое</b> <span>новые функции на обкатке ›</span>
+      </button>
 
       {last && (
         <button className="continue" onClick={() => onOpenText(last.id)}>

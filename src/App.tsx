@@ -20,6 +20,7 @@ import { Game } from './components/Games';
 import { hardReload, useUpdateAvailable } from './lib/update';
 import { QuestChestScreen, RewardLayer } from './components/Quests';
 import { Collection } from './components/Collection';
+import { Chat, Lab } from './components/Chat';
 
 export type View =
   | { name: Tab }
@@ -30,7 +31,9 @@ export type View =
   | { name: 'chest' }
   | { name: 'game'; game: GameId }
   | { name: 'questChest' }
-  | { name: 'collection' };
+  | { name: 'collection' }
+  | { name: 'lab' }
+  | { name: 'chat' };
 
 /** Top banner when a newer version is deployed than the one running (stuck service worker cache). */
 function UpdateBanner() {
@@ -122,6 +125,10 @@ function Screens() {
       return <QuestChestScreen onDone={() => setView({ name: 'home' })} />;
     case 'collection':
       return <Collection onBack={() => setView({ name: 'home' })} />;
+    case 'lab':
+      return <Lab onBack={() => setView({ name: 'home' })} onOpen={() => setView({ name: 'chat' })} />;
+    case 'chat':
+      return <Chat onBack={() => setView({ name: 'lab' })} />;
     case 'settings':
       return <Settings onTab={onTab} onLearn={learn} />;
     case 'words':
@@ -129,6 +136,6 @@ function Screens() {
     case 'library':
       return <Library onOpen={openText} onAdd={() => setView({ name: 'add' })} onLearn={learn} onTab={onTab} onAddKey={() => setView({ name: 'key' })} />;
     default:
-      return <Home onTab={onTab} onLearn={learn} onOpenText={openText} onChest={() => setView({ name: 'chest' })} onAddKey={() => setView({ name: 'key' })} onGame={(game) => setView({ name: 'game', game })} onQuestChest={() => setView({ name: 'questChest' })} onCollection={() => setView({ name: 'collection' })} />;
+      return <Home onTab={onTab} onLearn={learn} onOpenText={openText} onChest={() => setView({ name: 'chest' })} onAddKey={() => setView({ name: 'key' })} onGame={(game) => setView({ name: 'game', game })} onQuestChest={() => setView({ name: 'questChest' })} onCollection={() => setView({ name: 'collection' })} onLab={() => setView({ name: 'lab' })} />;
   }
 }

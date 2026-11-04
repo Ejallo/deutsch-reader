@@ -446,6 +446,26 @@ const reviewSchema = {
   required: ['title', 'text', 'changes', 'levelNote'],
 };
 
+/** Runs a strict task (editing, correcting) on the strongest Flash that answers, skipping slow or out-of-quota ones. */
+async function strictGenerate<T>(prompt: string, schema: object, maxTokens?: number): Promise<T> {
+  let last: unknown;
+  for (const model of await criticCandidates()) {
+    try {
+      const r = await generate<T>(prompt, schema, { model, temperature: 0.1, timeoutMs: CRITIC_TIMEOUT_MS, ...(maxTokens ? { maxTokens } : {}) });
+      criticOk = model;
+      return r;
+    } catch (e) {
+      last = e;
+      // Slow, retired or out-of-quota model: remember it and try the next one
+      const status = e instanceof GeminiError ? e.status : 0;
+      if (![408, 404, 429, 500, 503].includes(status)) throw e;
+      markBad(model);
+      if (criticOk === model) criticOk = null;
+    }
+  }
+  throw last;
+}
+
 export async function reviewText(level: string, words: string[], title: string, text: string): Promise<Review> {
   const prompt =
     `You are a strict German editor and CEFR examiner. A text for a learner at level ${level} must be checked and corrected.
@@ -459,22 +479,78 @@ export async function reviewText(level: string, words: string[], title: string, 
 Title: ${title}
 
 ${text}`;
-  let last: unknown;
-  for (const model of await criticCandidates()) {
-    try {
-      const review = await generate<Review>(prompt, reviewSchema, { model, temperature: 0.1, timeoutMs: CRITIC_TIMEOUT_MS });
-      criticOk = model;
-      return review;
-    } catch (e) {
-      last = e;
-      // Slow, retired or out-of-quota model: remember it and try the next one
-      const status = e instanceof GeminiError ? e.status : 0;
-      if (![408, 404, 429, 500, 503].includes(status)) throw e;
-      markBad(model);
-      if (criticOk === model) criticOk = null;
-    }
-  }
-  throw last;
+  return strictGenerate<Review>(prompt, reviewSchema);
+}
+
+// --- Role-play conversation: a fast partner (default Flash-Lite) and a strict corrector (stronger Flash) ---
+
+export interface ChatLine {
+  role: 'ai' | 'me';
+  de: string;
+}
+
+export interface ChatReply {
+  reply: string;
+  translation: string;
+  hints: string[];
+}
+
+/** The partner's next line in the scene; with an empty history it opens the conversation. */
+export async function chatReply(scene: string, level: string, words: string[], history: ChatLine[]): Promise<ChatReply> {
+  const transcript = history.map((l) => `${l.role === 'ai' ? 'You' : 'Learner'}: ${l.de}`).join('\n');
+  return generate<ChatReply>(
+    `You are role-playing with a Russian speaker learning German. Scene: ${scene}\n` +
+      `Stay in your role and speak only German at CEFR level ${level}: short natural replies of 1-3 sentences, ask a question to keep the conversation going. ` +
+      `Do not correct the learner - a separate teacher does that; just react naturally, as a patient native speaker would. ` +
+      (words.length ? `When it fits naturally, use some of these words the learner is studying (any form): ${words.join(', ')}. ` : '') +
+      (transcript ? `\nConversation so far:\n${transcript}\n\nWrite your next line.` : `\nOpen the conversation with your first line.`) +
+      ` Answer in JSON.`,
+    {
+      type: 'OBJECT',
+      properties: {
+        reply: S('Your next line in German'),
+        translation: S('Natural Russian translation of your line'),
+        hints: { type: 'ARRAY', items: S('A short possible answer the learner could give, in German at their level'), description: 'Exactly 2 different possible answers' },
+      },
+      required: ['reply', 'translation', 'hints'],
+    },
+    { temperature: 0.7, timeoutMs: 20000, maxTokens: 800 },
+  );
+}
+
+export interface ChatCheck {
+  ok: boolean;
+  corrected: string;
+  issues: { wrong: string; right: string; explanation: string }[];
+}
+
+/** Checks one learner line in the context of the partner's last line; strict, so it runs on the stronger model. */
+export async function chatCheck(partnerLine: string, line: string, level: string): Promise<ChatCheck> {
+  return strictGenerate<ChatCheck>(
+    `You are a careful German teacher. A Russian speaker (CEFR ${level}) is in a role-play conversation.\n` +
+      `Partner said: "${partnerLine}"\nLearner answered: "${line}"\n\n` +
+      `Check the learner's answer: grammar, word order, cases, articles, verb forms, spelling with umlauts, noun capitalization, and whether the words fit. ` +
+      `Ignore missing final punctuation and a lowercase first letter. Do not rewrite a correct answer just to make it more elegant - only real mistakes count. ` +
+      `If it is correct, ok = true, corrected = the answer unchanged, issues = []. ` +
+      `Otherwise give the minimally corrected answer and each mistake with a short Russian explanation that names the rule (e.g. "после mit — дательный падеж"). Answer in JSON.`,
+    {
+      type: 'OBJECT',
+      properties: {
+        ok: { type: 'BOOLEAN', description: 'true if the answer has no real mistakes' },
+        corrected: S('The minimally corrected answer; unchanged if ok'),
+        issues: {
+          type: 'ARRAY',
+          items: {
+            type: 'OBJECT',
+            properties: { wrong: S('Wrong fragment as written'), right: S('Correct fragment'), explanation: S('Short rule in Russian') },
+            required: ['wrong', 'right', 'explanation'],
+          },
+        },
+      },
+      required: ['ok', 'corrected', 'issues'],
+    },
+    1500,
+  );
 }
 
 // --- Scan: German text from photos of pages ---
