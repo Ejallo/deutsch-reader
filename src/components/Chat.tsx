@@ -61,7 +61,7 @@ function studyWords(): string[] {
   return [...hard, ...rest].map((w) => (w.article ? `${w.article} ${w.lemma}` : w.lemma));
 }
 
-export function Lab({ onBack, onOpen }: { onBack: () => void; onOpen: (id: 'chat') => void }) {
+export function Lab({ onBack, onOpen }: { onBack: () => void; onOpen: (id: 'chat' | 'live') => void }) {
   return (
     <div className="screen">
       <TopBar title="🧪 Тестовое" back="Главная" onBack={onBack} />
@@ -73,6 +73,13 @@ export function Lab({ onBack, onOpen }: { onBack: () => void; onOpen: (id: 'chat
         <div>
           <b>Разговор с ИИ</b>
           <span>Ролевые сценки: врач, ведомство, квартира, small talk. Собеседник подстраивается под уровень, ошибки — в чанки.</span>
+        </div>
+      </button>
+      <button className="lab-item c-mint-item" onClick={() => onOpen('live')}>
+        <span className="lab-ic">📞</span>
+        <div>
+          <b>Проверка связи: голосом</b>
+          <span>Живой голосовой разговор с Gemini Live. Проверяем, работает ли на твоём ключе и хорошо ли слышно на телефоне.</span>
         </div>
       </button>
     </div>

@@ -21,6 +21,7 @@ import { hardReload, useUpdateAvailable } from './lib/update';
 import { QuestChestScreen, RewardLayer } from './components/Quests';
 import { Collection } from './components/Collection';
 import { Chat, Lab } from './components/Chat';
+import { LiveTest } from './components/LiveTest';
 
 export type View =
   | { name: Tab }
@@ -33,7 +34,8 @@ export type View =
   | { name: 'questChest' }
   | { name: 'collection' }
   | { name: 'lab' }
-  | { name: 'chat' };
+  | { name: 'chat' }
+  | { name: 'live' };
 
 /** Top banner when a newer version is deployed than the one running (stuck service worker cache). */
 function UpdateBanner() {
@@ -126,9 +128,11 @@ function Screens() {
     case 'collection':
       return <Collection onBack={() => setView({ name: 'home' })} />;
     case 'lab':
-      return <Lab onBack={() => setView({ name: 'home' })} onOpen={() => setView({ name: 'chat' })} />;
+      return <Lab onBack={() => setView({ name: 'home' })} onOpen={(id) => setView(id === 'live' ? { name: 'live' } : { name: 'chat' })} />;
     case 'chat':
       return <Chat onBack={() => setView({ name: 'lab' })} />;
+    case 'live':
+      return <LiveTest onBack={() => setView({ name: 'lab' })} />;
     case 'settings':
       return <Settings onTab={onTab} onLearn={learn} />;
     case 'words':

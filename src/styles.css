@@ -1830,18 +1830,18 @@ button.link.danger {
     transform: scale(1.07) rotate(-2deg);
   }
 }
-/* Combo 10+: the card itself catches fire */
+/* Combo 10+: the card glows "cosmic" to match the backdrop */
 .feed.combo-hot .feed-card:not(.reviewing) .lesson-card {
-  border: 3px solid #ff9a5c;
-  animation: burn 1.1s ease-in-out infinite;
+  border: 3px solid #9b8cff;
+  animation: cosmic 1.4s ease-in-out infinite;
 }
-@keyframes burn {
+@keyframes cosmic {
   0%,
   100% {
-    box-shadow: 0 8px 0 color-mix(in oklch, #ff9a5c 70%, black), 0 0 18px rgba(255, 140, 70, 0.45);
+    box-shadow: 0 8px 0 color-mix(in oklch, #9b8cff 70%, black), 0 0 18px rgba(140, 150, 255, 0.45);
   }
   50% {
-    box-shadow: 0 8px 0 color-mix(in oklch, #ff9a5c 70%, black), 0 0 34px rgba(255, 110, 50, 0.75);
+    box-shadow: 0 8px 0 color-mix(in oklch, #9b8cff 70%, black), 0 0 36px rgba(170, 140, 255, 0.75);
   }
 }
 .combo-break {
@@ -3881,4 +3881,299 @@ button.link.danger {
 }
 .chat-summary .stat-tiles {
   text-align: center;
+}
+
+/* ---------- Live voice test ---------- */
+.lab-item.c-mint-item {
+  background: var(--mint);
+  box-shadow: 0 5px 0 color-mix(in oklch, var(--mint) 72%, black);
+}
+.live-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 14px;
+}
+.live-stage.speaking .mascot {
+  animation: m-jump 0.6s ease-in-out infinite;
+}
+.live-meter {
+  width: 160px;
+  height: 8px;
+  border-radius: 99px;
+  background: var(--card2);
+  overflow: hidden;
+}
+.live-meter i {
+  display: block;
+  height: 100%;
+  background: var(--mint);
+  transition: width 0.1s;
+}
+.live-status {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--sub);
+  text-align: center;
+}
+.live-error {
+  white-space: pre-wrap;
+  font: 600 12px/1.4 ui-monospace, monospace;
+  color: var(--danger);
+  background: var(--card);
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+.live-call {
+  width: 100%;
+}
+.live-actions {
+  display: flex;
+  gap: 10px;
+}
+.live-actions .chunky {
+  flex: 1;
+}
+.live-lines {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.live-line {
+  padding: 10px 14px;
+  border-radius: 16px;
+  background: var(--card);
+  border: 2px solid var(--line);
+  font-size: 15px;
+}
+.live-line.me {
+  background: var(--lav);
+  border-color: var(--lav);
+  color: var(--onP);
+}
+
+/* ---------- Feed motion: living backdrop, companion, kinetic word, blitz ---------- */
+/* .feed is a stacking context, so z-index -1 paints above its background but under everything else */
+.fx-bg {
+  --fx-b1: #f6e7d3;
+  --fx-b2: #f0e4f2;
+  --fx-b3: #e3eefb;
+  --fx-ink: #c9b9a4;
+  --fx-ray: #ffffff;
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  transition: filter 0.45s;
+}
+.fx-bg.t1 { --fx-b1: #ffd2a6; --fx-b2: #ffc4b5; --fx-b3: #ffe9a6; --fx-ink: #ff9f5a; --fx-ray: #fff1c4; }
+.fx-bg.t2 { --fx-b1: #ffb3d1; --fx-b2: #d9c2ff; --fx-b3: #ffd59e; --fx-ink: #ff6fa8; --fx-ray: #ffe08a; }
+.fx-bg.t3 { --fx-b1: #8fa6ff; --fx-b2: #c49bff; --fx-b3: #7fd8ff; --fx-ink: #ffffff; --fx-ray: #ffffff; }
+.fx-bg.cold {
+  filter: saturate(0.15) brightness(0.97);
+}
+.fx-blob {
+  position: absolute;
+  width: 340px;
+  height: 340px;
+  border-radius: 50%;
+  filter: blur(50px);
+  opacity: 0.6;
+  transition: background-color 1.2s ease, opacity 1.2s;
+  animation: fx-drift 12s ease-in-out infinite alternate;
+}
+.fx-bg:not(.t0) .fx-blob { opacity: 0.85; }
+.fx-blob.b1 { left: -140px; top: -40px; background: var(--fx-b1); animation-duration: 11s; }
+.fx-blob.b2 { right: -150px; top: 32%; background: var(--fx-b2); animation-duration: 15s; animation-delay: -5s; }
+.fx-blob.b3 { left: -40px; bottom: -80px; background: var(--fx-b3); animation-duration: 13s; animation-delay: -8s; }
+@keyframes fx-drift {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(60px, 30px) scale(1.15); }
+  100% { transform: translate(-20px, -50px) scale(0.95); }
+}
+.fx-rays {
+  position: absolute;
+  left: 50%;
+  top: 36%;
+  width: 900px;
+  height: 900px;
+  margin: -450px;
+  opacity: 0;
+  transition: opacity 0.8s;
+}
+.fx-rays svg {
+  width: 100%;
+  height: 100%;
+  fill: var(--fx-ray);
+  animation: fx-spin 40s linear infinite;
+}
+.fx-bg.t1 .fx-rays { opacity: 0.45; }
+.fx-bg.t2 .fx-rays { opacity: 0.6; }
+.fx-bg.t3 .fx-rays { opacity: 0.5; }
+.fx-bg.t2 .fx-rays svg { animation-duration: 20s; }
+.fx-bg.t3 .fx-rays svg { animation-duration: 10s; }
+@keyframes fx-spin {
+  to { transform: rotate(360deg); }
+}
+.fx-star {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 8px 2px rgba(255, 255, 255, 0.9);
+  opacity: 0;
+  transition: opacity 0.8s;
+  animation: fx-tw 2.2s ease-in-out infinite;
+}
+.fx-bg.t3 .fx-star { opacity: 1; }
+@keyframes fx-tw {
+  50% { transform: scale(0.3); }
+}
+.fx-wave {
+  position: absolute;
+  width: 60px;
+  height: 60px;
+  margin: -30px;
+  border-radius: 50%;
+}
+.fx-floaty {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font: 800 20px var(--display);
+  font-style: normal;
+  color: var(--fx-ink);
+  opacity: 0;
+  will-change: transform, opacity;
+}
+/* Night theme: the same hues, as dim glows */
+:root[data-theme='dark'] .fx-blob { opacity: 0.22; }
+:root[data-theme='dark'] .fx-bg:not(.t0) .fx-blob { opacity: 0.38; }
+:root[data-theme='dark'] .fx-bg .fx-rays svg { fill: color-mix(in oklch, var(--fx-ray) 25%, transparent); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .fx-blob { opacity: 0.22; }
+  :root:not([data-theme='light']) .fx-bg:not(.t0) .fx-blob { opacity: 0.38; }
+  :root:not([data-theme='light']) .fx-bg .fx-rays svg { fill: color-mix(in oklch, var(--fx-ray) 25%, transparent); }
+}
+
+/* Stickers and speed lines fly over everything */
+.fx-top {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  overflow: hidden;
+  pointer-events: none;
+}
+.fx-top > * {
+  position: absolute;
+  left: 0;
+  top: 0;
+  will-change: transform, opacity;
+}
+.fx-sticker {
+  font: 800 24px var(--display);
+  padding: 10px 18px;
+  border-radius: 14px;
+  white-space: nowrap;
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.18);
+  background: #ffd36b;
+  color: #1f2333;
+}
+.fx-sticker.s-t2 { background: linear-gradient(135deg, #ff7a59, #ff3d7f); color: #fff; }
+.fx-sticker.s-t3 { background: linear-gradient(135deg, #5b7cff, #a35bff); color: #fff; }
+.fx-sticker.s-blitz { background: #7a5bff; color: #fff; }
+.fx-sticker.s-crit { background: #1f2333; color: #ffd36b; }
+.fx-speed {
+  height: 3px;
+  border-radius: 3px;
+  background: #7a5bff;
+}
+
+/* The companion sits on the card's top-right corner and answers every answer */
+.feed-pal {
+  position: absolute;
+  right: -8px;
+  top: -34px;
+  z-index: 3;
+  pointer-events: none;
+}
+.feed-pal .mascot {
+  margin: 0;
+}
+.mascot .m-rig {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
+.mascot.star .m-body {
+  animation: m-jump 1.6s cubic-bezier(0.3, 0, 0.3, 1) infinite;
+}
+.pal-say {
+  position: absolute;
+  right: 74px;
+  top: 4px;
+  font: 800 14px var(--body);
+  background: var(--ink);
+  color: var(--bg);
+  padding: 7px 11px;
+  border-radius: 14px 14px 4px 14px;
+  white-space: nowrap;
+  animation: pal-say 1.5s ease forwards;
+}
+@keyframes pal-say {
+  0% { transform: translateY(6px) scale(0.5); opacity: 0; }
+  12% { transform: translateY(-4px) scale(1.05); opacity: 1; }
+  20%, 80% { transform: translateY(-4px) scale(1); opacity: 1; }
+  100% { transform: translateY(-14px) scale(0.9); opacity: 0; }
+}
+
+/* Kinetic type: the word drops in letter by letter */
+.kword {
+  display: inline-block;
+  white-space: nowrap;
+}
+.kword .ch {
+  display: inline-block;
+  animation: ch-in 0.42s cubic-bezier(0.3, 1.4, 0.5, 1) backwards;
+  animation-delay: calc(140ms + var(--i) * 38ms);
+}
+@keyframes ch-in {
+  from {
+    transform: translateY(0.6em) rotate(12deg) scale(0.4);
+    opacity: 0;
+    filter: blur(4px);
+  }
+}
+
+/* Blitz window: drains over 3 s, freezes once answered */
+.blitz {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  bottom: 12px;
+  height: 4px;
+  border-radius: 99px;
+  background: var(--line);
+  overflow: hidden;
+}
+.blitz i {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--sky), var(--lav));
+  transform-origin: 0 50%;
+  animation: blitz-drain 3s linear forwards;
+}
+.feed-card[class*='res-'] .blitz i {
+  animation-play-state: paused;
+}
+.feed-card.reviewing .blitz {
+  display: none;
+}
+@keyframes blitz-drain {
+  to { transform: scaleX(0); }
 }
