@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { addText, useData } from '../lib/store';
-import { translateTitles } from '../lib/gemini';
+import { scanText, translateTitles } from '../lib/gemini';
 import { TopBar, type Accent } from './ui';
 import {
   generate,
@@ -34,10 +34,11 @@ interface Props {
   onSaved: (id: string) => void;
 }
 
-type Tab = 'paste' | 'generate' | 'link' | 'library';
+type Tab = 'paste' | 'scan' | 'generate' | 'link' | 'library';
 
 const TABS: [Tab, string][] = [
   ['paste', 'Вставить'],
+  ['scan', 'Фото'],
   ['generate', 'Создать'],
   ['link', 'Ссылка'],
   ['library', 'Библиотека'],
@@ -58,6 +59,7 @@ export function AddText({ onBack, onSaved }: Props) {
         ))}
       </div>
       {tab === 'paste' && <PasteTab onSave={save} />}
+      {tab === 'scan' && <ScanTab onSave={save} />}
       {tab === 'generate' && <GenerateTab onSave={save} />}
       {tab === 'link' && <LinkTab onSave={save} />}
       {tab === 'library' && <LibraryTab onSave={save} />}
@@ -117,6 +119,155 @@ function PasteTab({ onSave }: SaveProps) {
       <button className="chunky c-peach wide" onClick={save}>
         Сохранить и читать
       </button>
+    </>
+  );
+}
+
+const MAX_PAGES = 6;
+const MAX_SIDE = 2048; // enough for small print, keeps the request light
+
+interface Page {
+  url: string; // preview (object URL of the downscaled image)
+  data: string; // base64 JPEG for Gemini
+}
+
+/** Downscales a photo on the device (EXIF rotation applied by the browser) and returns it as JPEG. */
+async function preparePhoto(file: File): Promise<Page> {
+  const src = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = src;
+    await img.decode().catch(() => {
+      throw new Error('Не получилось открыть фото — попробуй другое');
+    });
+    const k = Math.min(1, MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(img.naturalWidth * k);
+    canvas.height = Math.round(img.naturalHeight * k);
+    canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob>((ok, fail) =>
+      canvas.toBlob((b) => (b ? ok(b) : fail(new Error('Не получилось обработать фото'))), 'image/jpeg', 0.85),
+    );
+    const data = await new Promise<string>((ok) => {
+      const fr = new FileReader();
+      fr.onload = () => ok(String(fr.result).split(',')[1]);
+      fr.readAsDataURL(blob);
+    });
+    return { url: URL.createObjectURL(blob), data };
+  } finally {
+    URL.revokeObjectURL(src);
+  }
+}
+
+function ScanTab({ onSave }: SaveProps) {
+  const [pages, setPages] = useState<Page[]>([]);
+  const [result, setResult] = useState<{ title: string; text: string } | null>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const galleryRef = useRef<HTMLInputElement>(null);
+  const hasKey = !!useData().settings.geminiKey;
+  const { busy, error, setError, run } = useTask();
+
+  const addFiles = (input: HTMLInputElement) => {
+    const list = [...(input.files ?? [])].slice(0, MAX_PAGES - pages.length);
+    input.value = ''; // the same photo can be picked again
+    if (!list.length) return;
+    void run(async () => {
+      const ready: Page[] = [];
+      for (const f of list) ready.push(await preparePhoto(f));
+      setPages((cur) => [...cur, ...ready].slice(0, MAX_PAGES));
+    });
+  };
+
+  const recognize = () =>
+    run(async () => {
+      const r = await scanText(pages.map((p) => ({ mimeType: 'image/jpeg', data: p.data })));
+      if (!r.ok || !r.text.trim()) throw new Error('Не нашёл на фото немецкого текста. Сними поближе и ровнее, при хорошем свете.');
+      setResult({ title: r.title.trim(), text: r.text.trim() });
+    });
+
+  if (result)
+    return (
+      <>
+        <p className="muted small">Сверь текст с фото и поправь, если что-то распозналось неверно. Нечитаемые места отмечены [?].</p>
+        <div className="scan-pages">
+          {pages.map((p, i) => (
+            <a key={p.url} href={p.url} target="_blank" rel="noreferrer">
+              <img src={p.url} alt={`Страница ${i + 1}`} />
+            </a>
+          ))}
+        </div>
+        <label className="field">
+          <span>Название</span>
+          <input value={result.title} onChange={(e) => setResult({ ...result, title: e.target.value })} />
+        </label>
+        <label className="field">
+          <span>Распознанный текст</span>
+          <textarea value={result.text} onChange={(e) => setResult({ ...result, text: e.target.value })} rows={14} />
+        </label>
+        {error && <p className="error">{error}</p>}
+        <button
+          className="chunky c-peach wide"
+          onClick={() => {
+            const text = result.text.trim();
+            if (!text) return setError('Текст пустой');
+            onSave({ title: result.title || text.split(/\s+/).slice(0, 5).join(' ') + '…', content: text, source: 'Скан с фото' });
+          }}
+        >
+          Сохранить и читать
+        </button>
+        <button className="link" onClick={() => setResult(null)}>
+          ← Назад к фото
+        </button>
+      </>
+    );
+
+  return (
+    <>
+      <p className="muted small">
+        Сфотографируй страницу книги, учебника или журнала — текст распознается и станет обычным текстом: перевод по тапу, слова в словарь. До {MAX_PAGES} страниц подряд.
+      </p>
+      <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => addFiles(e.target)} />
+      <input ref={galleryRef} type="file" accept="image/*" multiple hidden onChange={(e) => addFiles(e.target)} />
+      {pages.length > 0 && (
+        <div className="scan-pages">
+          {pages.map((p, i) => (
+            <div key={p.url} className="scan-page">
+              <img src={p.url} alt={`Страница ${i + 1}`} />
+              <span className="scan-num">{i + 1}</span>
+              <button
+                className="scan-del"
+                aria-label="Убрать фото"
+                disabled={busy}
+                onClick={() => {
+                  URL.revokeObjectURL(p.url);
+                  setPages((cur) => cur.filter((x) => x !== p));
+                }}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {pages.length < MAX_PAGES && (
+        <div className="row scan-buttons">
+          <button className="chunky c-sky" disabled={busy} onClick={() => cameraRef.current?.click()}>
+            📷 {pages.length ? 'Ещё фото' : 'Камера'}
+          </button>
+          <button className="chunky c-lav" disabled={busy} onClick={() => galleryRef.current?.click()}>
+            🖼 Галерея
+          </button>
+        </div>
+      )}
+      <p className="muted small">Совет: страница целиком в кадре, ровно, без бликов и тени от телефона.</p>
+      {!hasKey && <p className="error">Для распознавания нужен ключ Gemini в настройках.</p>}
+      {error && <p className="error">{error}</p>}
+      {pages.length > 0 && (
+        <button className="chunky c-peach wide" disabled={busy || !hasKey} onClick={() => void recognize()}>
+          {busy ? 'Распознаю текст…' : `Распознать ${pages.length > 1 ? `${pages.length} стр.` : 'текст'}`}
+        </button>
+      )}
+      {busy && pages.length > 0 && <p className="muted small">Обычно 10–40 секунд.</p>}
     </>
   );
 }

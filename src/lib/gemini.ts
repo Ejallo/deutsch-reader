@@ -67,6 +67,7 @@ interface GenOptions {
   temperature?: number;
   timeoutMs?: number;
   maxTokens?: number; // cuts off a model that starts repeating itself
+  images?: { mimeType: string; data: string }[]; // base64 images sent along with the prompt
 }
 
 const DEFAULT_TIMEOUT_MS = 20000;
@@ -133,7 +134,7 @@ async function callModel<T>(key: string, model: string, prompt: string, schema: 
     method: 'POST',
     headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      contents: [{ role: 'user', parts: [...(opts.images ?? []).map((inlineData) => ({ inlineData })), { text: prompt }] }],
       generationConfig: {
         responseMimeType: 'application/json',
         responseSchema: schema,
@@ -467,6 +468,44 @@ ${text}`;
     } catch (e) {
       last = e;
       // Slow, retired or out-of-quota model: remember it and try the next one
+      const status = e instanceof GeminiError ? e.status : 0;
+      if (![408, 404, 429, 500, 503].includes(status)) throw e;
+      markBad(model);
+      if (criticOk === model) criticOk = null;
+    }
+  }
+  throw last;
+}
+
+// --- Scan: German text from photos of pages ---
+
+const SCAN_TIMEOUT_MS = 60000;
+
+export async function scanText(images: { mimeType: string; data: string }[]): Promise<{ title: string; text: string; ok: boolean }> {
+  const prompt =
+    `These are ${images.length > 1 ? `${images.length} photos of consecutive pages` : 'a photo of a page'} with German text. ` +
+    `Transcribe the main German text exactly as printed, character by character: keep the original spelling, umlauts, ß and punctuation, do not correct, ` +
+    `translate, summarize or invent anything. Join words hyphenated across line breaks, join lines into normal paragraphs, separate paragraphs with a blank line. ` +
+    `Skip page numbers, running headers/footers, captions and marginal notes. If a word is unreadable, write [?]. ` +
+    `If several pages are given, continue the text in page order. Answer in JSON.`;
+  const schema = {
+    type: 'OBJECT',
+    properties: {
+      ok: { type: 'BOOLEAN', description: 'false if the photos contain no readable German text' },
+      title: S('The heading of the text if there is one, otherwise a short German title (max 5 words) based on the content'),
+      text: S('The transcribed German text, paragraphs separated by \n\n'),
+    },
+    required: ['ok', 'title', 'text'],
+  };
+  let last: unknown;
+  // Non-lite Flash reads photos noticeably better; same candidates and fallbacks as the critic
+  for (const model of await criticCandidates()) {
+    try {
+      const r = await generate<{ title: string; text: string; ok: boolean }>(prompt, schema, { model, images, temperature: 0, timeoutMs: SCAN_TIMEOUT_MS });
+      criticOk = model;
+      return r;
+    } catch (e) {
+      last = e;
       const status = e instanceof GeminiError ? e.status : 0;
       if (![408, 404, 429, 500, 503].includes(status)) throw e;
       markBad(model);
