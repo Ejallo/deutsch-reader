@@ -7,6 +7,7 @@ import { translateParagraph, translatePhrase, translateWord } from '../lib/gemin
 import { WordSheet, type SheetState } from './WordSheet';
 import { SyncBadge } from './SyncBadge';
 import { levelAccent, PBar, Pill, readProgress, textLevel } from './ui';
+import { useBack } from '../lib/back';
 
 interface Props {
   id: string;
@@ -29,6 +30,7 @@ export function Reader({ id, onBack }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const reqId = useRef(0);
   const [showLook, setShowLook] = useState(false);
+  useBack(showLook, () => setShowLook(false));
   const [seen, setSeen] = useState(() => readProgress(id));
   const [speaking, setSpeaking] = useState<number | null>(null);
   const look = data.settings;

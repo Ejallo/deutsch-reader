@@ -6,6 +6,7 @@ import { fullGerman, shortTranslation } from '../lib/feed';
 import { speak } from '../lib/tts';
 import { TabBar, type Tab } from './TabBar';
 import { articleClass, Mascot, StatStrip, TopBar } from './ui';
+import { useBack } from '../lib/back';
 
 interface Props {
   onTab: (t: Tab) => void;
@@ -96,6 +97,10 @@ function WordsBody() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [selecting, setSelecting] = useState(false);
+  useBack(selecting, () => {
+    setSelecting(false);
+    setPicked(new Set());
+  });
   const [picked, setPicked] = useState<Set<string>>(new Set());
 
   const words = useMemo(() => Object.values(data.words).filter((w) => !w.deleted), [data.words]);
@@ -355,6 +360,7 @@ function ChunksBody() {
 }
 
 function ChunkDetails({ c, onClose }: { c: Chunk; onClose: () => void }) {
+  useBack(true, onClose);
   return (
     <>
       <button className="sheet-backdrop" aria-label="Закрыть" onClick={onClose} />
@@ -432,6 +438,7 @@ function ChunkDetails({ c, onClose }: { c: Chunk; onClose: () => void }) {
 }
 
 function WordDetails({ w, onClose }: { w: Word; onClose: () => void }) {
+  useBack(true, onClose);
   const [editing, setEditing] = useState(false);
   const [translation, setTranslation] = useState(w.translation);
   const [meanings, setMeanings] = useState(w.meanings);

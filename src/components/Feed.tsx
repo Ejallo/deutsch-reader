@@ -12,6 +12,7 @@ import { ChestScreen, LessonSummary, LevelUpScreen, type SessionStats } from './
 import { Mascot, PBar } from './ui';
 import { FeedFx, type FeedFxHandle } from './FeedFx';
 import type { Mood, Reaction } from './Mascot';
+import { useBack } from '../lib/back';
 
 interface Props {
   onClose: () => void;
@@ -151,6 +152,8 @@ export function Feed({ onClose }: Props) {
   // Answered cards of this session; `back` points into it while looking at past cards
   const history = useRef<Seen[]>([]);
   const [back, setBack] = useState<number | null>(null);
+  // System Back while looking at past cards returns to the live card first
+  useBack(back !== null, () => setBack(null));
   const current = useRef<{ item: FeedItem | null; result: Result | null }>({ item: null, result: null });
   current.current = { item, result };
   const lastNav = useRef(0);

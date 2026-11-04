@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { makeChunk } from '../lib/gemini';
 import { addXp, getData, lemmaKey, liveChunks, saveChunk, type ChunkExample } from '../lib/store';
+import { useBack } from '../lib/back';
 
 interface Props {
   onClose: () => void;
@@ -29,6 +30,7 @@ function manualExample(text: string, sentence: string, ru: string): ChunkExample
 
 /** Add a chunk by hand; Gemini normalizes it and writes practice sentences. */
 export function AddChunkSheet({ onClose }: Props) {
+  useBack(true, onClose);
   const [text, setText] = useState('');
   const [translation, setTranslation] = useState('');
   const [sentence, setSentence] = useState('');

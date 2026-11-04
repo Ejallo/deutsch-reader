@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { addXp, getData, lemmaKey, saveWord } from '../lib/store';
 import { translatePhrase, translateWord } from '../lib/gemini';
+import { useBack } from '../lib/back';
 
 interface Props {
   onClose: () => void;
@@ -10,6 +11,7 @@ const ARTICLES = ['', 'der', 'die', 'das'];
 
 /** Add a word or a phrase to the dictionary by hand; Gemini can fill in the details. */
 export function AddWordSheet({ onClose }: Props) {
+  useBack(true, onClose);
   const [phrase, setPhrase] = useState(false);
   const [german, setGerman] = useState('');
   const [article, setArticle] = useState('');

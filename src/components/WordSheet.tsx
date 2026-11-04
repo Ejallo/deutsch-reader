@@ -3,6 +3,7 @@ import { makeChunk, translateParagraph, type ChunkInfo, type PhraseInfo, type Wo
 import { addXp, lemmaKey, removeWord, saveChunk, saveWord, useData, wordForForm, type WordStatus } from '../lib/store';
 import { articleClass } from './ui';
 import { speak } from '../lib/tts';
+import { useBack } from '../lib/back';
 
 export type SheetState =
   | { kind: 'word'; form: string; word: string; sentence: string; info?: WordInfo; error?: string }
@@ -16,6 +17,7 @@ interface Props {
 }
 
 export function WordSheet({ state, source, onClose, onRetry }: Props) {
+  useBack(true, onClose);
   return (
     <div className="sheet" role="dialog" aria-label="Перевод">
       <button className="sheet-close" onClick={onClose} aria-label="Закрыть">

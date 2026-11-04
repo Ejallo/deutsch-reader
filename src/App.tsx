@@ -22,6 +22,7 @@ import { QuestChestScreen, RewardLayer } from './components/Quests';
 import { Collection } from './components/Collection';
 import { Chat, Lab } from './components/Chat';
 import { LiveTest } from './components/LiveTest';
+import { LAYER_SCREEN, useBack } from './lib/back';
 
 export type View =
   | { name: Tab }
@@ -36,6 +37,24 @@ export type View =
   | { name: 'lab' }
   | { name: 'chat' }
   | { name: 'live' };
+
+/** Where system Back goes from a screen (same targets as the on-screen back buttons). */
+function backTarget(v: View): View | null {
+  switch (v.name) {
+    case 'home':
+      return null;
+    case 'add':
+      return { name: 'library' };
+    case 'reader':
+    case 'feed':
+      return { name: v.from };
+    case 'chat':
+    case 'live':
+      return { name: 'lab' };
+    default:
+      return { name: 'home' };
+  }
+}
 
 /** Top banner when a newer version is deployed than the one running (stuck service worker cache). */
 function UpdateBanner() {
@@ -96,6 +115,12 @@ function Screens() {
     void set('setupDone', true);
     setSetupDone(true);
   };
+
+  // System Back walks up one screen; on Home it leaves the app
+  const parent = backTarget(view);
+  useBack(parent !== null, () => {
+    if (parent) setView(parent);
+  }, LAYER_SCREEN);
 
   const onTab = (t: Tab) => setView({ name: t });
   const tab: Tab = view.name === 'home' || view.name === 'library' || view.name === 'words' || view.name === 'settings' ? view.name : 'home';
