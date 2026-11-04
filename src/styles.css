@@ -4115,7 +4115,7 @@ button.link.danger {
 .pal-say {
   position: absolute;
   right: 74px;
-  top: 4px;
+  top: 30px; /* level with the card label: the stage clips anything higher */
   font: 800 14px var(--body);
   background: var(--ink);
   color: var(--bg);

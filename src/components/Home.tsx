@@ -4,7 +4,7 @@ import { levelOf } from '../lib/gamify';
 import { lastOpenedText, levelAccent, PBar, Pill, readProgress, textLevel } from './ui';
 import { TabBar, waitingCards, type Tab } from './TabBar';
 import { SyncBadge } from './SyncBadge';
-import { Mascot, mascotMood, type Mood } from './Mascot';
+import { Mascot, mascotMood, type DayMood } from './Mascot';
 import { GAME_MIN_WORDS, GAMES, MIN_WORDS, recordLine } from './Games';
 import { QuestsCard } from './Quests';
 import { BADGES, wordTier } from '../lib/badges';
@@ -40,7 +40,7 @@ function thisWeek(): string[] {
   });
 }
 
-const PET_LINES: Record<Mood, (streak: number, left: number) => [string, string]> = {
+const PET_LINES: Record<DayMood, (streak: number, left: number) => [string, string]> = {
   happy: () => ['Super gemacht!', 'Цель дня выполнена — я доволен'],
   wait: (_, left) => ['Lernen wir?', `Ещё ${left} карточек до цели дня`],
   sad: (streak) => ['Ich vermisse dich…', streak > 0 ? 'Серия сгорит в полночь — давай позанимаемся' : 'Серия прервалась — начнём новую?'],

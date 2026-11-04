@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { addXp, countPractice, recordBestCombo, recordPerfectDay, DAILY_GOAL, type LearnMode, getData, learningCards, recordGoal, saveChunkReview, saveReview, todayProgress, updateSettings, useData, type Chunk, type ChunkExample, type Word } from '../lib/store';
 import { review, type Answer } from '../lib/srs';
 import { afterAnswer, checkChunk, checkGap, checkTiles, checkWritten, EXTRA_NEW_STEP, fullGerman, isSpecial, itemKey, newSession, nextItem, shortTranslation, type FeedItem, type Format } from '../lib/feed';
@@ -10,6 +10,8 @@ import { speak } from '../lib/tts';
 import { BlitzCard, ChestCard, Confetti, MilestoneCard, SentenceCard } from './SpecialCards';
 import { ChestScreen, LessonSummary, LevelUpScreen, type SessionStats } from './Rewards';
 import { Mascot, PBar } from './ui';
+import { FeedFx, type FeedFxHandle } from './FeedFx';
+import type { Mood, Reaction } from './Mascot';
 
 interface Props {
   onClose: () => void;
@@ -19,6 +21,8 @@ type Result = { answer: Answer; picked?: number; typed?: string; xp?: number; bo
 /** An answered card kept so it can be looked at again (read-only). */
 type Seen = { item: FeedItem; result: Result };
 type CardData = { word?: Word; chunk?: Chunk; example?: ChunkExample };
+/** The companion mascot on the card: its mood, the last move to play and the last thing it said. */
+type Pal = { mood: Mood; react?: { kind: Reaction; n: number }; say?: { text: string; n: number } };
 
 const ROUND_BONUS_XP = 20;
 const LEAVE_MS = 260;
@@ -35,6 +39,17 @@ const EASY_MS: Partial<Record<Format, number>> = { 'c-choose': 4000, 'c-tiles': 
 const BREAK_DRAMA = 5; // losing a combo at least this long gets its own moment
 const NO_GOLD: Format[] = ['intro', 'c-intro', 'sentence'];
 const FAST_MS = 3000; // a correct answer quicker than this counts for the "fast" quest
+// Formats with answer buttons get the draining blitz bar (typing takes longer than FAST_MS)
+const BLITZ: Format[] = ['choose', 'listen', 'article', 'c-choose'];
+// What the companion says after a correct answer, by combo tier
+const CHEERS = [
+  ['Richtig!', 'Genau!', 'Ja! 👍'],
+  ['Super! ✨', 'Weiter so!', 'Klasse!'],
+  ['Wahnsinn!', 'Stark! 💪', 'Unglaublich!'],
+  ['Du bist ein Star! ⭐', 'Fantastisch!', 'Weltklasse!'],
+];
+const anyOf = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
+const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 const HINT_MAX = 5; // "ещё N до…" names a card goal only when it is this close
 // Quests the next card can move, for the "ещё N до задания" hint
 const HINT_METRICS: Metric[] = ['correct', 'chunk', 'listen', 'fast', 'writePerfect', 'tiles', 'gap', 'fixMistake'];
@@ -72,6 +87,16 @@ export function Feed({ onClose }: Props) {
   const [levelUp, setLevelUp] = useState<number | null>(null);
   const [broke, setBroke] = useState(0); // length of the combo the last answer just lost
   const lastGolden = useRef(-GOLDEN_GAP);
+  const fx = useRef<FeedFxHandle>(null);
+  const stage = useRef<HTMLDivElement>(null);
+  const [pal, setPal] = useState<Pal>({ mood: 'wait' });
+  const palN = useRef(0);
+  const palTimers = useRef<number[]>([]);
+  const palSet = (mood: Mood, kind?: Reaction, say?: string) => {
+    const n = ++palN.current;
+    setPal({ mood, react: kind && { kind, n }, say: say ? { text: say, n } : undefined });
+  };
+  const palLater = (ms: number, fn: () => void) => palTimers.current.push(window.setTimeout(fn, ms));
 
   const load = useCallback(() => {
     const r = nextItem(getData(), session.current);
@@ -89,6 +114,9 @@ export function Feed({ onClose }: Props) {
     setSpecialDone(false);
     setRoundDone(0);
     setBroke(0);
+    palTimers.current.forEach(clearTimeout);
+    palTimers.current = [];
+    setPal({ mood: 'wait' });
   }, []);
 
   /** Adds XP and opens the level-up screen when it crosses into a new level. */
@@ -215,9 +243,41 @@ export function Feed({ onClose }: Props) {
       setBroke(prevCombo);
     } else sfx.wrong();
 
+    const fast = answer === 'good' && BLITZ.includes(item.format) && Date.now() - shownAt.current < FAST_MS;
+    reactTo(answer, prevCombo, nextCombo, bonus, golden, fast);
+
     setResult({ answer, xp, bonus, golden, ...extra });
     if (getData().settings.listening) setTimeout(() => speak(say), 250);
     trackQuests(answer, nextCombo);
+  };
+
+  /** The companion, the backdrop and the "camera" answer the answer: bigger the longer the combo. */
+  const reactTo = (answer: Answer, prev: number, next: number, bonus: number, golden: boolean, fast: boolean) => {
+    if (answer === 'good') {
+      const t = comboTier(next);
+      palSet(t >= 2 ? 'star' : 'happy', t >= 2 ? 'flip' : t === 1 ? 'jump' : 'hop', anyOf(CHEERS[t]));
+      fx.current?.correct({ tier: t, tierUp: t > comboTier(prev), combo: next, fast, bonus, golden });
+      punch(t);
+    } else if (answer === 'hard') palSet('wait', 'nod', 'Fast! 💪');
+    else {
+      // flinch, a beat of sadness, then straight back to cheering: a mistake is not a punishment
+      palSet('oops', 'flinch', prev >= 3 ? `Ой… ×${prev}` : 'Ой!');
+      fx.current?.wrong(prev);
+      palLater(450, () => setPal((p) => ({ ...p, mood: 'sad' })));
+      palLater(1300, () => palSet('wait', 'nod', 'Запомним! ✊'));
+    }
+  };
+
+  /** A short push-in of the whole stage, like a beat cut in a video; the top tier also shakes. */
+  const punch = (t: number) => {
+    const el = stage.current;
+    if (!el?.animate || reducedMotion()) return;
+    const k = t >= 2 ? 1.06 : 1.04;
+    el.animate([{ transform: 'scale(1)' }, { transform: `scale(${k}) rotate(${(Math.random() - 0.5) * 1.2}deg)`, offset: 0.25 }, { transform: 'scale(1)' }], { duration: 380, easing: 'cubic-bezier(.2,.9,.3,1)' });
+    if (t === 3)
+      palLater(380, () => {
+        el.animate([{ transform: 'translate(0,0)' }, { transform: 'translate(-6px,3px)' }, { transform: 'translate(6px,-3px)' }, { transform: 'translate(-4px,2px)' }, { transform: 'translate(0,0)' }], 300);
+      });
   };
 
   /** Feeds one answer into the quest counters (and the best-combo / perfect-day stats behind badges). */
@@ -428,6 +488,7 @@ export function Feed({ onClose }: Props) {
         else if (e.deltaY < -40) goBack();
       }}
     >
+      <FeedFx ref={fx} tier={back === null ? tier : 0} />
       <header className="feed-top">
         <button className="feed-close" onClick={onClose} aria-label="Закрыть">
           ✕
@@ -468,7 +529,7 @@ export function Feed({ onClose }: Props) {
         ))}
       </div>
 
-      <div className="feed-stage">
+      <div ref={stage} className="feed-stage">
         {empty && (
           <EmptyCard
             reason={empty}
@@ -494,6 +555,16 @@ export function Feed({ onClose }: Props) {
               </span>
             )}
             {broke > 0 && <span className="combo-break">💔 Серия ×{broke} сгорела</span>}
+            {(word || chunk) && back === null && (
+              <div className="feed-pal">
+                <Mascot size={88} mood={pal.mood} react={pal.react} />
+                {pal.say && (
+                  <span key={pal.say.n} className="pal-say">
+                    {pal.say.text}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         )}
         {seen && (
@@ -550,7 +621,6 @@ function ResultSheet({ result, solution, meaning, combo, broke, round, hint, onN
     return (
       <div className="result-sheet c-mint">
         <div className="head">
-          <Mascot size={84} mood="happy" />
           <div>
             <div className="ttl">Richtig!</div>
             <div className="sub">
@@ -569,7 +639,6 @@ function ResultSheet({ result, solution, meaning, combo, broke, round, hint, onN
   return (
     <div className={`result-sheet ${result.answer === 'hard' ? 'c-butter' : 'c-pink'}`}>
       <div className="head">
-        <Mascot size={84} mood={result.answer === 'hard' ? 'wait' : 'sad'} />
         <div>
           <div className="ttl">{result.answer === 'hard' ? 'Почти! 💪' : broke ? `Серия ×${broke} сгорела` : 'Не совсем'}</div>
           <div className="sub">
@@ -613,6 +682,28 @@ function ReviewSheet({ answer, text, canBack, onBack, onReturn }: { answer: Answ
   );
 }
 
+/** The word drops in letter by letter when a card appears. */
+function KWord({ text }: { text: string }) {
+  return (
+    <span className="kword" key={text}>
+      {[...text].map((c, i) => (
+        <span key={i} className="ch" style={{ '--i': Math.min(i, 16) } as CSSProperties}>
+          {c === ' ' ? '\u00a0' : c}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** Thin bar that drains over FAST_MS: answer before it's gone for a blitz. */
+function Blitz() {
+  return (
+    <div className="blitz" aria-hidden="true">
+      <i />
+    </div>
+  );
+}
+
 function Speaker({ text, big }: { text: string; big?: boolean }) {
   return (
     <button className={`speaker ${big ? 'big' : ''}`} onClick={() => speak(text)} aria-label="Озвучить">
@@ -627,7 +718,9 @@ function IntroCard({ w, onDone }: { w: Word; onDone: () => void }) {
       <span className="feed-label">Новое слово</span>
       <div className="lesson-card">
         <Speaker text={fullGerman(w)} />
-        <div className="feed-word">{fullGerman(w)}</div>
+        <div className="feed-word">
+          <KWord text={fullGerman(w)} />
+        </div>
         {w.plural && <p className="muted small" style={{ margin: 0 }}>мн. ч. {w.plural}</p>}
         <p className="feed-tr">{shortTranslation(w)}</p>
         {w.meanings && <p className="small muted" style={{ margin: 0 }}>{w.meanings}</p>}
@@ -662,8 +755,11 @@ function ChooseCard({ w, item, result, onPick }: { w: Word; item: FeedItem; resu
       <span className="feed-label">Переведи</span>
       <div className="lesson-card">
         <Speaker text={fullGerman(w)} />
-        <div className="feed-word">{fullGerman(w)}</div>
+        <div className="feed-word">
+          <KWord text={fullGerman(w)} />
+        </div>
         {w.example && <p className="feed-example">„{w.example}“</p>}
+        <Blitz />
       </div>
       <Options item={item} result={result} onPick={onPick} />
     </>
@@ -677,6 +773,7 @@ function ListenCard({ w, item, result, onPick }: { w: Word; item: FeedItem; resu
       <div className="lesson-card">
         <Speaker text={fullGerman(w)} big />
         {result && <div className="feed-word">{fullGerman(w)}</div>}
+        <Blitz />
       </div>
       <Options item={item} result={result} onPick={onPick} />
     </>
@@ -696,10 +793,13 @@ function ArticleCard({ w, item, result, onPick, combo }: { w: Word; item: FeedIt
               <span className="ans-chip">{w.article}</span> {w.lemma}
             </>
           ) : (
-            <>___ {w.lemma}</>
+            <>
+              ___ <KWord text={w.lemma} />
+            </>
           )}
         </div>
         <p className="feed-example">{result ? shortTranslation(w) : w.example ? `„${w.example}“` : shortTranslation(w)}</p>
+        <Blitz />
       </div>
       <Options item={item} result={result} onPick={onPick} />
       {!result && <div className="art-hint">der — синий · die — розовый · das — мятный</div>}
@@ -825,6 +925,7 @@ function ChunkChooseCard({ e, item, result, onPick }: { e: ChunkExample; item: F
         <Speaker text={e.de} />
         <Cloze e={e} reveal={!!result} />
         <p className="small muted" style={{ margin: 0 }}>{e.ru}</p>
+        <Blitz />
       </div>
       <Options item={item} result={result} onPick={onPick} />
     </>

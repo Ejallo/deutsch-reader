@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { Boss, type BossMood } from './Boss';
 import { currentStreak, todayKey, useData, type AppData, type MascotId } from '../lib/store';
 
@@ -15,10 +15,42 @@ export const MASCOTS: { id: MascotId; de: string; ru: string }[] = [
 
 export const DEFAULT_MASCOT: MascotId = 'kater';
 
-export type Mood = 'happy' | 'wait' | 'sad' | 'sleep';
+/** Moods that follow the day (see mascotMood). */
+export type DayMood = 'happy' | 'wait' | 'sad' | 'sleep';
+/** Plus short-lived faces the feed's companion pulls in reply to answers. */
+export type Mood = DayMood | 'star' | 'oops';
+
+/** One-shot body moves the feed's companion makes in reply to an answer. */
+export type Reaction = 'hop' | 'jump' | 'flip' | 'flinch' | 'nod';
+
+const STAR_PATH = 'M0 -8 L2.4 -2.4 L8 -2.4 L3.4 1.2 L5 7 L0 3.6 L-5 7 L-3.4 1.2 L-8 -2.4 L-2.4 -2.4 Z';
+
+const hop = (h: number, flip = false): Keyframe[] => [
+  { transform: 'translateY(0) scale(1,1) rotate(0)' },
+  { transform: 'translateY(0) scale(1.16,.8) rotate(0)', offset: 0.16 },
+  { transform: `translateY(${-h}px) scale(.9,1.12) rotate(${flip ? -180 : -5}deg)`, offset: 0.45, easing: 'ease-in' },
+  { transform: `translateY(0) scale(1.18,.82) rotate(${flip ? -360 : 0}deg)`, offset: 0.74 },
+  { transform: `translateY(0) scale(1,1) rotate(${flip ? -360 : 0}deg)` },
+];
+const MOVES: Record<Reaction, [Keyframe[], number]> = {
+  hop: [hop(16), 600],
+  jump: [hop(28), 680],
+  flip: [hop(40, true), 760],
+  flinch: [
+    [
+      { transform: 'scale(1,1) rotate(0)' },
+      { transform: 'scale(.9,1.08) rotate(-8deg)', offset: 0.15 },
+      { transform: 'scale(1.05,.92) rotate(6deg)', offset: 0.4 },
+      { transform: 'scale(1,1) rotate(-4deg)', offset: 0.7 },
+      { transform: 'scale(1,1) rotate(0)' },
+    ],
+    440,
+  ],
+  nod: [[{ transform: 'scale(1,1)' }, { transform: 'scale(1.05,.94)', offset: 0.3 }, { transform: 'scale(.98,1.04)', offset: 0.6 }, { transform: 'scale(1,1)' }], 400],
+};
 
 /** Mood from the day: asleep at night, happy once the goal is met, sad when the streak is at risk or lost. */
-export function mascotMood(d: AppData, date = new Date()): Mood {
+export function mascotMood(d: AppData, date = new Date()): DayMood {
   const h = date.getHours();
   if (h >= 23 || h < 7) return 'sleep';
   if (d.stats.lastGoalDay === todayKey(date)) return 'happy';
@@ -64,6 +96,10 @@ function Eyes({ f, mood }: { f: FaceSpec; mood: Mood }) {
             <g key={i}>{closed}</g>
           );
         }
+        if (mood === 'star')
+          return <path key={i} transform={`translate(${x},${y}) scale(${(r * 1.5) / 8})`} d={STAR_PATH} fill="#f3c94a" stroke={INK} strokeWidth={1.4 / ((r * 1.5) / 8)} strokeLinejoin="round" />;
+        if (mood === 'oops')
+          return <path key={i} d={`M${x - r} ${y - r} L${x + r} ${y + r} M${x + r} ${y - r} L${x - r} ${y + r}`} stroke={INK} strokeWidth={2.8} strokeLinecap="round" />;
         if (mood === 'happy') {
           // happy squint: eyes become ^ ^
           const squint = (
@@ -129,7 +165,9 @@ function Face({ f, mood }: { f: FaceSpec; mood: Mood }) {
       {m &&
         (mood === 'sleep' ? (
           <ellipse cx={m.x} cy={m.y + 2} rx={2.2} ry={2.8} fill={col} />
-        ) : mood === 'happy' ? (
+        ) : mood === 'oops' ? (
+          <path d={`M${m.x - m.w * 1.3} ${m.y + 2} q${m.w * 0.33} -2.5 ${m.w * 0.65} 0 t${m.w * 0.65} 0 t${m.w * 0.65} 0 t${m.w * 0.65} 0`} stroke={col} strokeWidth={2} fill="none" {...round} />
+        ) : mood === 'happy' || mood === 'star' ? (
           // wide open smile with a tongue
           <g>
             <path d={`M${m.x - m.w * 1.25} ${m.y - 1} Q${m.x} ${m.y + m.w * 2.1} ${m.x + m.w * 1.25} ${m.y - 1} Z`} fill={INK} stroke={INK} strokeWidth={1.5} strokeLinejoin="round" />
@@ -348,26 +386,35 @@ const SPARKS: [number, number, number][] = [
 ];
 
 /** The user's tamagotchi; `id` overrides the one chosen in settings, `mood` the one from the day. */
-export function Mascot({ size = 130, id, mood, still }: { size?: number; id?: MascotId; mood?: Mood; still?: boolean }) {
+export function Mascot({ size = 130, id, mood, still, react }: { size?: number; id?: MascotId; mood?: Mood; still?: boolean; react?: { kind: Reaction; n: number } }) {
   const data = useData();
+  const rig = useRef<SVGGElement>(null);
+  // A new `react.n` plays its move once; WAAPI runs on a wrapper so the mood's own loop keeps going
+  useEffect(() => {
+    if (!react || !rig.current?.animate) return;
+    const [k, d] = MOVES[react.kind];
+    rig.current.animate(k, { duration: d, easing: 'cubic-bezier(.25,.7,.35,1)' });
+  }, [react?.n]);
   const m = id ?? (data.settings.mascot || DEFAULT_MASCOT);
   const md = mood ?? mascotMood(data);
   const a = ART[m] ?? ART[DEFAULT_MASCOT];
   return (
     <svg className={`mascot ${still ? '' : md}`} width={size} height={size} viewBox="-66 -70 132 132" aria-hidden="true">
       <ellipse className="m-shadow" cx={0} cy={56} rx={36} ry={5} fill="currentColor" opacity={0.08} />
-      {md === 'happy' && !still && (
+      {(md === 'happy' || md === 'star') && !still && (
         <g className="m-spark" fill="#f3c94a">
           {SPARKS.map(([x, y, s], i) => (
             <path key={i} transform={`translate(${x},${y}) scale(${s})`} d="M0 -6 Q1 -1 6 0 Q1 1 0 6 Q-1 1 -6 0 Q-1 -1 0 -6 Z" />
           ))}
         </g>
       )}
-      <g className="m-body">
-        <g transform={a.wrap}>
-          {a.body}
-          <Face f={a.face} mood={md} />
-          {a.front}
+      <g ref={rig} className="m-rig">
+        <g className="m-body">
+          <g transform={a.wrap}>
+            {a.body}
+            <Face f={a.face} mood={md} />
+            {a.front}
+          </g>
         </g>
       </g>
       {md === 'sleep' && (
