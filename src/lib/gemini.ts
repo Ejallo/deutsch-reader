@@ -292,7 +292,12 @@ export async function makeChunk(hint: string, sentence: string, avoid?: ChunkInf
   return info;
 }
 
-/** Russian versions of headlines, one request for all that aren't cached yet. */
+const TITLES_PER_REQUEST = 12; // long lists made small models skip or merge lines
+
+/**
+ * Russian versions of headlines, in small numbered batches. Each translation comes back with its
+ * headline number, so a skipped or merged line costs only that line instead of the whole list.
+ */
 export async function translateTitles(titles: string[]): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
   const missing = titles.filter((t) => {
@@ -300,22 +305,34 @@ export async function translateTitles(titles: string[]): Promise<Record<string, 
     if (hit) out[t] = hit as string;
     return !hit;
   });
-  if (!missing.length) return out;
-  const r = await generate<{ translations: string[] }>(
-    `Translate these German news headlines into short natural Russian, in the same order, one translation per headline:\n` +
-      missing.map((t, i) => `${i + 1}. ${t}`).join('\n'),
-    {
-      type: 'OBJECT',
-      properties: { translations: { type: 'ARRAY', items: S('Russian translation of one headline'), description: `Exactly ${missing.length} items` } },
-      required: ['translations'],
-    },
-  );
-  // A count mismatch would pair headlines with the wrong translations
-  if (r.translations?.length !== missing.length) return out;
-  missing.forEach((t, i) => {
-    out[t] = r.translations[i];
-    remember(`t|${t}`, r.translations[i]);
-  });
+  for (let k = 0; k < missing.length; k += TITLES_PER_REQUEST) {
+    const batch = missing.slice(k, k + TITLES_PER_REQUEST);
+    const r = await generate<{ items: { n: number; ru: string }[] }>(
+      `Translate these German news headlines into short natural Russian. For each one return its number and the translation.\n` +
+        batch.map((t, i) => `${i + 1}. ${t}`).join('\n'),
+      {
+        type: 'OBJECT',
+        properties: {
+          items: {
+            type: 'ARRAY',
+            items: {
+              type: 'OBJECT',
+              properties: { n: { type: 'INTEGER', description: 'Headline number from the list' }, ru: S('Russian translation of that headline') },
+              required: ['n', 'ru'],
+            },
+          },
+        },
+        required: ['items'],
+      },
+      { maxTokens: 2000 },
+    );
+    for (const { n, ru } of r.items ?? []) {
+      const t = batch[n - 1];
+      if (!t || !ru?.trim() || out[t]) continue;
+      out[t] = ru.trim();
+      remember(`t|${t}`, out[t]);
+    }
+  }
   return out;
 }
 

@@ -101,10 +101,18 @@ function usePayout() {
   return { pay, screen };
 }
 
-/** A short banner over the playing field: medals and records reached mid-run. */
+const TOAST_MS = 1700;
+
+/** A short banner above the question (never over it): medals and records reached mid-run. */
 function useToast() {
   const [toast, setToast] = useState<{ text: string; n: number } | null>(null);
-  const show = (text: string) => setToast((t) => ({ text, n: (t?.n ?? 0) + 1 }));
+  const timer = useRef(0);
+  const show = (text: string) => {
+    setToast((t) => ({ text, n: (t?.n ?? 0) + 1 }));
+    clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setToast(null), TOAST_MS);
+  };
+  useEffect(() => () => clearTimeout(timer.current), []);
   const node = toast ? (
     <div key={toast.n} className="game-toast">
       {toast.text}
@@ -214,7 +222,7 @@ interface GameProps {
 }
 
 /** Feed-like frame: close button, a status line, the playing field. */
-function Shell({ onClose, status, toast, children }: { onClose: () => void; status: ReactNode; toast?: ReactNode; children: ReactNode }) {
+function Shell({ onClose, status, children }: { onClose: () => void; status: ReactNode; children: ReactNode }) {
   return (
     <div className="feed game">
       <header className="feed-top">
@@ -224,10 +232,7 @@ function Shell({ onClose, status, toast, children }: { onClose: () => void; stat
         {status}
       </header>
       <div className="feed-stage">
-        <div className="feed-card">
-          {toast}
-          {children}
-        </div>
+        <div className="feed-card">{children}</div>
       </div>
     </div>
   );
@@ -411,7 +416,6 @@ function SpeedGame({ pool, onAgain, onClose }: GameProps) {
   return (
     <Shell
       onClose={onClose}
-      toast={toast.node}
       status={
         <>
           <PBar value={left / SPEED_MS} accent={left < 10_000 ? 'pink' : 'butter'} h={14} />
@@ -420,7 +424,8 @@ function SpeedGame({ pool, onAgain, onClose }: GameProps) {
         </>
       }
     >
-      {run.chase(score)}
+      {/* The toast takes the chase line's place for a moment, so it never covers the question */}
+      <div className="game-slot">{toast.node ?? run.chase(score)}</div>
       <QuestionView q={q} picked={picked} onPick={pick} />
     </Shell>
   );
@@ -500,7 +505,6 @@ function SurvivalGame({ pool, onAgain, onClose }: GameProps) {
   return (
     <Shell
       onClose={onClose}
-      toast={toast.node}
       status={
         <>
           <Hearts n={lives} />
@@ -509,7 +513,8 @@ function SurvivalGame({ pool, onAgain, onClose }: GameProps) {
         </>
       }
     >
-      {run.chase(score)}
+      {/* The toast takes the chase line's place for a moment, so it never covers the question */}
+      <div className="game-slot">{toast.node ?? run.chase(score)}</div>
       <QuestionView q={q} picked={picked} onPick={pick} />
     </Shell>
   );
