@@ -49,24 +49,36 @@ async function verifyGoogleToken(token, clientId) {
   return claims;
 }
 
+const userAgentOf = (req) => (req.headers.get('User-Agent') ?? '').slice(0, 300);
+
 const sha256 = async (s) => b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)));
 
 /** Creates (or refreshes) the user and returns a new session token; only its hash is stored. */
-async function startSession(env, claims) {
+async function startSession(env, claims, userAgent) {
   const now = Date.now();
   await env.DB.prepare('INSERT INTO users (id, email, name, created) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(id) DO UPDATE SET email = ?2, name = ?3')
     .bind(claims.sub, claims.email ?? '', claims.name ?? claims.given_name ?? '', now)
     .run();
   const token = b64url(crypto.getRandomValues(new Uint8Array(32)));
-  await env.DB.prepare('INSERT INTO sessions (token_hash, user_id, created) VALUES (?1, ?2, ?3)').bind(await sha256(token), claims.sub, now).run();
+  await env.DB.prepare('INSERT INTO sessions (token_hash, user_id, created, user_agent, last_seen) VALUES (?1, ?2, ?3, ?4, ?3)')
+    .bind(await sha256(token), claims.sub, now, userAgent)
+    .run();
   return token;
 }
 
 async function userFromRequest(req, env) {
   const token = req.headers.get('Authorization')?.match(/^Bearer (.+)$/)?.[1];
   if (!token) return null;
-  const row = await env.DB.prepare('SELECT user_id FROM sessions WHERE token_hash = ?1').bind(await sha256(token)).first();
-  return row?.user_id ?? null;
+  const hash = await sha256(token);
+  const row = await env.DB.prepare('SELECT user_id, user_agent, last_seen FROM sessions WHERE token_hash = ?1').bind(hash).first();
+  if (!row) return null;
+  // Track the device and last activity; write at most once a minute per session
+  const now = Date.now();
+  const ua = userAgentOf(req);
+  if (ua !== row.user_agent || !row.last_seen || now - row.last_seen > 60000) {
+    await env.DB.prepare('UPDATE sessions SET user_agent = ?2, last_seen = ?3 WHERE token_hash = ?1').bind(hash, ua, now).run();
+  }
+  return row.user_id;
 }
 
 async function gzip(text) {
@@ -88,7 +100,7 @@ async function googleRedirect(req, env, target) {
     back.hash = 'login-error';
     return Response.redirect(back.toString(), 303);
   }
-  const session = await startSession(env, claims);
+  const session = await startSession(env, claims, userAgentOf(req));
   // The fragment never reaches any server; the app reads and clears it
   back.hash = new URLSearchParams({ login: session, name: claims.name ?? '', email: claims.email ?? '' }).toString();
   return Response.redirect(back.toString(), 303);
