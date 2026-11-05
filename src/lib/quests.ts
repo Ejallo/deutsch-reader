@@ -34,11 +34,12 @@ export type Metric =
   | 'medal'
   | 'record'
   | 'wordAdd'
-  | 'markKnown';
+  | 'markKnown'
+  | 'callMinutes'; // minutes spoken in voice role-play calls
 
 const MAX_METRICS: Metric[] = ['combo', 'cleanRun', 'articleRun', 'blitz', 'speedScore', 'survivalScore'];
 
-type Cat = 'volume' | 'quality' | 'formats' | 'chunks' | 'speed' | 'games' | 'dict';
+type Cat = 'volume' | 'quality' | 'formats' | 'chunks' | 'speed' | 'games' | 'dict' | 'talk';
 
 export interface QuestDef {
   id: string;
@@ -97,6 +98,8 @@ export const QUESTS: QuestDef[] = [
   { id: 'bossWin', cat: 'games', tier: 3, metric: 'bossWin', target: 1, title: 'Победи босса', needs: (d) => hasWords(6)(d) && d.stats.bossWonDay !== todayKey() },
   { id: 'medal1', cat: 'games', tier: 2, metric: 'medal', target: 1, title: 'Получи медаль в любой игре', needs: hasWords(6) },
   { id: 'record1', cat: 'games', tier: 3, metric: 'record', target: 1, title: 'Побей свой рекорд в игре', needs: (d) => hasWords(6)(d) && Object.values(d.stats.records).some((r) => r > 0) },
+  // Speaking
+  { id: 'call3', cat: 'talk', tier: 2, metric: 'callMinutes', target: 3, title: 'Поговори голосом 3 минуты', needs: (d) => !!d.settings.geminiKey },
   // Dictionary
   { id: 'wordAdd3', cat: 'dict', tier: 2, metric: 'wordAdd', target: 3, title: 'Добавь 3 новых слова в словарь' },
   { id: 'markKnown1', cat: 'dict', tier: 1, metric: 'markKnown', target: 1, title: 'Отметь слово как «знаю»', needs: (d) => words(d).some((w) => w.status === 'learning') },

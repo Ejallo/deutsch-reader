@@ -12,6 +12,23 @@ const CHUNK_SAMPLES = 1600; // 100 ms of mic audio per message
 
 // Known Live models, most likely to work on a free key first (the 3.8 family used to hang on free keys)
 const PREFERRED = ['gemini-3.1-flash-live', 'gemini-2.5-flash-native-audio', 'gemini-3.8-live'];
+const WORKED_KEY = 'liveModel'; // the model that connected last time goes first
+
+function workedModel() {
+  try {
+    return localStorage.getItem(WORKED_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function rememberModel(model: string) {
+  try {
+    localStorage.setItem(WORKED_KEY, model);
+  } catch {
+    // just tried in the default order next time
+  }
+}
 
 /** Live-capable models this key can use, in the order worth trying. */
 export async function liveModels(key: string): Promise<string[]> {
@@ -27,7 +44,9 @@ export async function liveModels(key: string): Promise<string[]> {
     // listing failed: fall back to the known names
   }
   if (!names.length) names = ['gemini-3.1-flash-live-preview', 'gemini-2.5-flash-native-audio-preview-12-2025', 'gemini-3.8-live'];
+  const worked = workedModel();
   const rank = (n: string) => {
+    if (n === worked) return -1;
     const i = PREFERRED.findIndex((p) => n.startsWith(p));
     return i < 0 ? PREFERRED.length : i;
   };
@@ -83,16 +102,28 @@ export interface LiveEvents {
   onLevel: (rms: number) => void;
   onSpeaking: (speaking: boolean) => void;
   onClose: (reason: string) => void;
+  /** The server is about to end the session (Live sessions last about 15 minutes). */
+  onWarning?: (secondsLeft: number) => void;
 }
 
 export interface LiveCall {
   model: string;
   setMuted: (m: boolean) => void;
+  /** Says something to the model as the learner, e.g. "repeat that slower". */
+  sendText: (text: string) => void;
   hangUp: () => void;
 }
 
+export interface CallOptions {
+  system: string;
+  /** First instruction, so the partner opens the conversation. */
+  opener: string;
+  /** Prebuilt voice name; dropped automatically if the model rejects it. */
+  voice?: string;
+}
+
 /** Opens a session on one model; resolves once the server confirms the setup, rejects with the reason otherwise. */
-function openSocket(key: string, model: string, system: string): Promise<WebSocket> {
+function openSocket(key: string, model: string, system: string, voice?: string): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`${WS}?key=${encodeURIComponent(key)}`);
     let settled = false;
@@ -113,7 +144,10 @@ function openSocket(key: string, model: string, system: string): Promise<WebSock
         JSON.stringify({
           setup: {
             model: `models/${model}`,
-            generationConfig: { responseModalities: ['AUDIO'] },
+            generationConfig: {
+              responseModalities: ['AUDIO'],
+              ...(voice ? { speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } } } : {}),
+            },
             systemInstruction: { parts: [{ text: system }] },
             inputAudioTranscription: {},
             outputAudioTranscription: {},
@@ -141,7 +175,7 @@ function openSocket(key: string, model: string, system: string): Promise<WebSock
  * Starts a voice call: tries the Live models in order, then streams the mic up and plays the voice back.
  * Must be called from a tap, so iOS lets the audio start.
  */
-export async function startCall(system: string, opener: string, ev: LiveEvents): Promise<LiveCall> {
+export async function startCall({ system, opener, voice }: CallOptions, ev: LiveEvents): Promise<LiveCall> {
   const key = getData().settings.geminiKey;
   if (!key) throw new Error('Нужен ключ Gemini — добавь его в настройках');
   // Created inside the tap: iOS only starts audio from a user gesture
@@ -162,14 +196,16 @@ export async function startCall(system: string, opener: string, ev: LiveEvents):
   const errors: string[] = [];
   let ws: WebSocket | null = null;
   let model = '';
-  for (const m of models) {
-    ev.onStatus(`Подключаюсь к ${m}…`);
+  // With a voice first; a model that rejects the voice setting still gets a try with its default voice
+  const attempts = models.flatMap((m) => (voice ? [{ m, voice }, { m, voice: undefined }] : [{ m, voice: undefined }]));
+  for (const a of attempts) {
+    ev.onStatus(`Подключаюсь к ${a.m}…`);
     try {
-      ws = await openSocket(key, m, system);
-      model = m;
+      ws = await openSocket(key, a.m, system, a.voice);
+      model = a.m;
       break;
     } catch (e) {
-      errors.push(`${m}: ${e instanceof Error ? e.message : e}`);
+      errors.push(`${a.m}${a.voice ? ` (голос ${a.voice})` : ''}: ${e instanceof Error ? e.message : e}`);
     }
   }
   if (!ws) {
@@ -178,6 +214,7 @@ export async function startCall(system: string, opener: string, ev: LiveEvents):
     throw new Error(`Ни одна голосовая модель не подключилась.\n${errors.join('\n')}`);
   }
   const socket = ws;
+  rememberModel(model);
 
   // Mic -> worklet -> 16 kHz chunks -> socket
   const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
@@ -235,6 +272,7 @@ export async function startCall(system: string, opener: string, ev: LiveEvents):
   socket.onmessage = async (e) => {
     const text = typeof e.data === 'string' ? e.data : await (e.data as Blob).text();
     const msg = JSON.parse(text);
+    if (msg.goAway) ev.onWarning?.(parseInt(String(msg.goAway.timeLeft ?? '60'), 10) || 60);
     const sc = msg.serverContent;
     if (!sc) return;
     if (sc.interrupted) stopPlayback();
@@ -268,6 +306,9 @@ export async function startCall(system: string, opener: string, ev: LiveEvents):
     model,
     setMuted: (m) => {
       muted = m;
+    },
+    sendText: (t) => {
+      if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ realtimeInput: { text: t } }));
     },
     hangUp: () => {
       try {

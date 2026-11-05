@@ -6,37 +6,41 @@ import { sfx } from '../lib/sfx';
 import { speak } from '../lib/tts';
 import { shuffle } from '../lib/feed';
 import { TopBar } from './ui';
+import { VoiceCall } from './VoiceCall';
 
 // Role-play conversations with Gemini: a quick partner plus a strict corrector for every learner line.
 // Lives in the «Тестовое» lab while it is being tried out.
 
-interface Scene {
+export interface Scene {
   id: string;
   emoji: string;
   title: string;
   /** What the model plays, in English for the prompt. */
   role: string;
+  /** Prebuilt Live voice that suits the role. */
+  voice?: string;
 }
 
 const SCENES: Scene[] = [
-  { id: 'arzt', emoji: '🩺', title: 'У врача', role: 'You are a friendly doctor (Ärztin) in a German practice; the learner is a patient who came with a health problem.' },
-  { id: 'amt', emoji: '🏛', title: 'В ведомстве', role: 'You are an official at the Bürgeramt; the learner wants to register their new address (Anmeldung) and has questions about documents.' },
-  { id: 'wohnung', emoji: '🏠', title: 'Снять квартиру', role: 'You are a landlord showing a flat (Wohnungsbesichtigung); the learner is interested in renting it and asks about rent, deposit and the flat.' },
-  { id: 'cafe', emoji: '☕', title: 'В кафе', role: 'You are a waiter in a café; the learner orders food and drinks and pays.' },
-  { id: 'smalltalk', emoji: '💬', title: 'Small talk', role: 'You are a friendly new neighbour meeting the learner in the stairwell; chat about everyday life, work and hobbies.' },
-  { id: 'job', emoji: '💼', title: 'Собеседование', role: 'You are an HR manager interviewing the learner for a job; ask about experience, strengths and plans.' },
-  { id: 'shop', emoji: '🛒', title: 'В магазине', role: 'You are a shop assistant in a clothing store; the learner is looking for something, asks about sizes and prices.' },
-  { id: 'phone', emoji: '📞', title: 'Звонок: запись', role: 'You are a receptionist answering the phone; the learner calls to make an appointment (Termin) and agree on a date and time.' },
+  { id: 'arzt', emoji: '🩺', title: 'У врача', role: 'You are a friendly doctor (Ärztin) in a German practice; the learner is a patient who came with a health problem.', voice: 'Kore' },
+  { id: 'amt', emoji: '🏛', title: 'В ведомстве', role: 'You are an official at the Bürgeramt; the learner wants to register their new address (Anmeldung) and has questions about documents.', voice: 'Charon' },
+  { id: 'wohnung', emoji: '🏠', title: 'Снять квартиру', role: 'You are a landlord showing a flat (Wohnungsbesichtigung); the learner is interested in renting it and asks about rent, deposit and the flat.', voice: 'Puck' },
+  { id: 'cafe', emoji: '☕', title: 'В кафе', role: 'You are a waiter in a café; the learner orders food and drinks and pays.', voice: 'Puck' },
+  { id: 'smalltalk', emoji: '💬', title: 'Small talk', role: 'You are a friendly new neighbour meeting the learner in the stairwell; chat about everyday life, work and hobbies.', voice: 'Aoede' },
+  { id: 'job', emoji: '💼', title: 'Собеседование', role: 'You are an HR manager interviewing the learner for a job; ask about experience, strengths and plans.', voice: 'Kore' },
+  { id: 'shop', emoji: '🛒', title: 'В магазине', role: 'You are a shop assistant in a clothing store; the learner is looking for something, asks about sizes and prices.', voice: 'Aoede' },
+  { id: 'phone', emoji: '📞', title: 'Звонок: запись', role: 'You are a receptionist answering the phone; the learner calls to make an appointment (Termin) and agree on a date and time.', voice: 'Kore' },
 ];
 
 const LEVELS = ['A1', 'A2', 'B1', 'B2'];
 const LEVEL_KEY = 'chatLevel';
+const MODE_KEY = 'chatMode';
 const WORDS_IN_PROMPT = 8;
 const XP_PER_LINE = 5;
 const XP_CAP = 100;
 
 type Check = ChatCheck | 'pending' | 'error';
-interface Msg {
+export interface Msg {
   id: number;
   role: 'ai' | 'me';
   de: string;
@@ -53,8 +57,18 @@ function savedLevel() {
   }
 }
 
+function savedMode(): 'voice' | 'text' {
+  try {
+    return localStorage.getItem(MODE_KEY) === 'text' ? 'text' : 'voice';
+  } catch {
+    return 'voice';
+  }
+}
+
+export const sceneText = (s: Scene) => `${s.role} (${s.title})`;
+
 /** Words the partner should weave in: a few of the ones being learned, the most forgotten first. */
-function studyWords(): string[] {
+export function studyWords(): string[] {
   const learning = Object.values(getData().words).filter((w) => !w.deleted && w.status === 'learning');
   const hard = [...learning].sort((a, b) => (b.card?.lapses ?? 0) - (a.card?.lapses ?? 0)).slice(0, 4);
   const rest = shuffle(learning.filter((w) => !hard.includes(w))).slice(0, WORDS_IN_PROMPT - hard.length);
@@ -90,6 +104,7 @@ export function Chat({ onBack }: { onBack: () => void }) {
   const [scene, setScene] = useState<Scene | null>(null);
   const [custom, setCustom] = useState('');
   const [level, setLevel] = useState(savedLevel);
+  const [mode, setMode] = useState(savedMode);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -105,8 +120,6 @@ export function Chat({ onBack }: { onBack: () => void }) {
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [msgs, busy]);
-
-  const sceneText = (s: Scene) => `${s.role} (${s.title})`;
 
   /** Asks the partner for the next line, given the conversation so far. */
   const partner = async (s: Scene, history: Msg[]) => {
@@ -129,12 +142,13 @@ export function Chat({ onBack }: { onBack: () => void }) {
   const start = (s: Scene) => {
     try {
       localStorage.setItem(LEVEL_KEY, level);
+      localStorage.setItem(MODE_KEY, mode);
     } catch {
-      // the level is just asked again next time
+      // level and mode are just asked again next time
     }
     words.current = studyWords();
     setScene(s);
-    void partner(s, []);
+    if (mode === 'text') void partner(s, []);
   };
 
   const send = (text = input) => {
@@ -172,6 +186,17 @@ export function Chat({ onBack }: { onBack: () => void }) {
           ))}
         </div>
         <div className="overline" style={{ marginTop: 16 }}>
+          Как говорим
+        </div>
+        <div className="segment">
+          <button className={mode === 'voice' ? 'on' : ''} onClick={() => setMode('voice')}>
+            📞 Голосом
+          </button>
+          <button className={mode === 'text' ? 'on' : ''} onClick={() => setMode('text')}>
+            💬 Текстом
+          </button>
+        </div>
+        <div className="overline" style={{ marginTop: 16 }}>
           Сценка
         </div>
         <div className="scene-grid">
@@ -195,6 +220,7 @@ export function Chat({ onBack }: { onBack: () => void }) {
       </div>
     );
 
+  if (mode === 'voice') return <VoiceCall scene={scene} level={level} words={words.current} onBack={onBack} />;
   if (done) return <ChatSummary scene={scene} msgs={msgs} onBack={onBack} />;
 
   const mine = msgs.filter((m) => m.role === 'me');
@@ -304,12 +330,15 @@ function CheckNote({ check }: { check?: Check }) {
 }
 
 /** End of the conversation: how it went, and the corrected lines to keep as chunks. */
-function ChatSummary({ scene, msgs, onBack }: { scene: Scene; msgs: Msg[]; onBack: () => void }) {
+export function ChatSummary({ scene, msgs, seconds, onBack }: { scene: Scene; msgs: Msg[]; seconds?: number; onBack: () => void }) {
   const mine = msgs.filter((m) => m.role === 'me');
   const checked = mine.filter((m) => m.check && typeof m.check === 'object') as (Msg & { check: ChatCheck })[];
+  const pending = mine.filter((m) => m.check === 'pending').length;
   const fixes = checked.filter((m) => !m.check.ok);
   const clean = checked.length - fixes.length;
-  const [picked, setPicked] = useState<Set<number>>(() => new Set(fixes.map((m) => m.id)));
+  // Checks can still arrive after the call ends, so the learner's un-ticks are kept rather than the ticks
+  const [unpicked, setUnpicked] = useState<Set<number>>(new Set());
+  const picked = new Set(fixes.filter((m) => !unpicked.has(m.id)).map((m) => m.id));
   const [saving, setSaving] = useState<string>('');
   const [saved, setSaved] = useState(0);
   const [xp, setXp] = useState(0);
@@ -348,6 +377,14 @@ function ChatSummary({ scene, msgs, onBack }: { scene: Scene; msgs: Msg[]; onBac
     <div className="screen chat-summary">
       <TopBar title="Итог разговора" back="Тестовое" onBack={onBack} />
       <div className="stat-tiles">
+        {seconds !== undefined && (
+          <div className="c-sky">
+            <b>
+              {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}
+            </b>
+            <span>время</span>
+          </div>
+        )}
         <div className="c-lav">
           <b>{mine.length}</b>
           <span>реплик</span>
@@ -372,8 +409,8 @@ function ChatSummary({ scene, msgs, onBack }: { scene: Scene; msgs: Msg[]; onBac
                 type="checkbox"
                 checked={picked.has(m.id)}
                 onChange={() =>
-                  setPicked((p) => {
-                    const next = new Set(p);
+                  setUnpicked((u) => {
+                    const next = new Set(u);
                     if (next.has(m.id)) next.delete(m.id);
                     else next.add(m.id);
                     return next;
@@ -389,6 +426,11 @@ function ChatSummary({ scene, msgs, onBack }: { scene: Scene; msgs: Msg[]; onBac
               </div>
             </label>
           ))}
+          {pending > 0 && (
+            <p className="muted small" style={{ fontWeight: 600 }}>
+              Проверяю ещё {pending}…
+            </p>
+          )}
           {saved ? (
             <p className="muted" style={{ fontWeight: 700 }}>
               ✓ Добавлено чанков: {saved}. Они уже в ленте.
@@ -401,7 +443,7 @@ function ChatSummary({ scene, msgs, onBack }: { scene: Scene; msgs: Msg[]; onBac
         </>
       ) : (
         <p className="muted" style={{ fontWeight: 600, marginTop: 20 }}>
-          {checked.length ? 'Ни одной ошибки — отлично!' : 'Проверки ещё не пришли.'}
+          {pending ? `Проверяю твои фразы… ещё ${pending}` : checked.length ? 'Ни одной ошибки — отлично!' : 'Нечего проверять.'}
         </p>
       )}
       <button className="link" style={{ marginTop: 16 }} onClick={onBack}>

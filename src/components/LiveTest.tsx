@@ -48,7 +48,7 @@ export function LiveTest({ onBack }: { onBack: () => void }) {
     setLines([]);
     setStarting(true);
     try {
-      const c = await startCall(SYSTEM, OPENER, {
+      const c = await startCall({ system: SYSTEM, opener: OPENER }, {
         onStatus: setStatus,
         onTranscript: addText,
         onLevel: setLevel,

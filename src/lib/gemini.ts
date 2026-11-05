@@ -518,6 +518,22 @@ export async function chatReply(scene: string, level: string, words: string[], h
   );
 }
 
+/** Two short things the learner could say next, for when they are stuck mid-conversation. */
+export async function chatHints(scene: string, level: string, history: ChatLine[]): Promise<string[]> {
+  const transcript = history.map((l) => `${l.role === 'ai' ? 'Partner' : 'Learner'}: ${l.de}`).join('\n');
+  const r = await generate<{ hints: string[] }>(
+    `A Russian speaker (CEFR ${level}) is in a German role-play. Scene: ${scene}\nConversation:\n${transcript}\n\n` +
+      `Suggest 2 different short answers the learner could say next, in simple German at their level. Answer in JSON.`,
+    {
+      type: 'OBJECT',
+      properties: { hints: { type: 'ARRAY', items: S('A short possible answer in German'), description: 'Exactly 2 items' } },
+      required: ['hints'],
+    },
+    { temperature: 0.6, timeoutMs: 15000, maxTokens: 400 },
+  );
+  return (r.hints ?? []).slice(0, 2);
+}
+
 export interface ChatCheck {
   ok: boolean;
   corrected: string;
@@ -525,12 +541,16 @@ export interface ChatCheck {
 }
 
 /** Checks one learner line in the context of the partner's last line; strict, so it runs on the stronger model. */
-export async function chatCheck(partnerLine: string, line: string, level: string): Promise<ChatCheck> {
+export async function chatCheck(partnerLine: string, line: string, level: string, spoken = false): Promise<ChatCheck> {
   return strictGenerate<ChatCheck>(
     `You are a careful German teacher. A Russian speaker (CEFR ${level}) is in a role-play conversation.\n` +
       `Partner said: "${partnerLine}"\nLearner answered: "${line}"\n\n` +
       `Check the learner's answer: grammar, word order, cases, articles, verb forms, spelling with umlauts, noun capitalization, and whether the words fit. ` +
-      `Ignore missing final punctuation and a lowercase first letter. Do not rewrite a correct answer just to make it more elegant - only real mistakes count. ` +
+      (spoken
+        ? `The answer was SPOKEN and written down by speech recognition: ignore all capitalization and punctuation, and do not count a word that is ` +
+          `most likely a recognition slip (a similar-sounding word that makes no sense here) - judge only real grammar and vocabulary mistakes. `
+        : `Ignore missing final punctuation and a lowercase first letter. `) +
+      `Do not rewrite a correct answer just to make it more elegant - only real mistakes count. ` +
       `If it is correct, ok = true, corrected = the answer unchanged, issues = []. ` +
       `Otherwise give the minimally corrected answer and each mistake with a short Russian explanation that names the rule (e.g. "после mit — дательный падеж"). Answer in JSON.`,
     {
