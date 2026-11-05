@@ -75,7 +75,7 @@ export function studyWords(): string[] {
   return [...hard, ...rest].map((w) => (w.article ? `${w.article} ${w.lemma}` : w.lemma));
 }
 
-export function Lab({ onBack, onOpen }: { onBack: () => void; onOpen: (id: 'chat' | 'live') => void }) {
+export function Lab({ onBack, onOpen }: { onBack: () => void; onOpen: (id: 'chat' | 'live' | 'video') => void }) {
   return (
     <div className="screen">
       <TopBar title="🧪 Тестовое" back="Главная" onBack={onBack} />
@@ -94,6 +94,13 @@ export function Lab({ onBack, onOpen }: { onBack: () => void; onOpen: (id: 'chat
         <div>
           <b>Проверка связи: голосом</b>
           <span>Живой голосовой разговор с Gemini Live. Проверяем, работает ли на твоём ключе и хорошо ли слышно на телефоне.</span>
+        </div>
+      </button>
+      <button className="lab-item c-pink-item" onClick={() => onOpen('video')}>
+        <span className="lab-ic">🎬</span>
+        <div>
+          <b>Видео с субтитрами</b>
+          <span>Ролик с YouTube на немецком: субтитры бегут за видео, нажми на слово — перевод и «Учить».</span>
         </div>
       </button>
     </div>

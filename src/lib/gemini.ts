@@ -68,6 +68,7 @@ interface GenOptions {
   timeoutMs?: number;
   maxTokens?: number; // cuts off a model that starts repeating itself
   images?: { mimeType: string; data: string }[]; // base64 images sent along with the prompt
+  video?: string; // public YouTube URL sent along with the prompt
 }
 
 const DEFAULT_TIMEOUT_MS = 20000;
@@ -134,8 +135,19 @@ async function callModel<T>(key: string, model: string, prompt: string, schema: 
     method: 'POST',
     headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      contents: [{ role: 'user', parts: [...(opts.images ?? []).map((inlineData) => ({ inlineData })), { text: prompt }] }],
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            ...(opts.video ? [{ fileData: { fileUri: opts.video } }] : []),
+            ...(opts.images ?? []).map((inlineData) => ({ inlineData })),
+            { text: prompt },
+          ],
+        },
+      ],
       generationConfig: {
+        // Speech is what matters in a video; low resolution frames cost ~3x fewer tokens
+        ...(opts.video ? { mediaResolution: 'MEDIA_RESOLUTION_LOW' } : {}),
         responseMimeType: 'application/json',
         responseSchema: schema,
         temperature: opts.temperature ?? 0.2,
@@ -157,6 +169,9 @@ async function callModel<T>(key: string, model: string, prompt: string, schema: 
   if (!r.ok) throw new GeminiError(`Gemini: ошибка ${r.status}`, r.status);
   const j = await r.json();
   const text = (j.candidates?.[0]?.content?.parts ?? []).map((p: { text?: string }) => p.text ?? '').join('');
+  const reason = j.promptFeedback?.blockReason ?? j.candidates?.[0]?.finishReason;
+  // An empty answer with a block reason (e.g. RECITATION for copyrighted speech) — say why instead of "unclear answer"
+  if (!text && reason && reason !== 'STOP') throw new GeminiError(`Gemini отказался отвечать (${reason})`, 451);
   try {
     return JSON.parse(text) as T;
   } catch {
@@ -623,6 +638,65 @@ export async function scanText(images: { mimeType: string; data: string }[]): Pr
       if (![408, 404, 429, 500, 503].includes(status)) throw e;
       markBad(model);
       if (criticOk === model) criticOk = null;
+    }
+  }
+  throw last;
+}
+
+// --- Video: timed German transcript of a YouTube video ---
+
+const VIDEO_TIMEOUT_MS = 180000;
+
+export interface VideoLine {
+  t: number; // start, seconds
+  de: string;
+}
+
+const toSeconds = (ts: string) =>
+  ts
+    .trim()
+    .split(':')
+    .map(Number)
+    .reduce((acc, n) => acc * 60 + (Number.isFinite(n) ? n : 0), 0);
+
+export async function transcribeVideo(url: string): Promise<{ title: string; lines: VideoLine[] }> {
+  const prompt =
+    `Transcribe the German speech in this video as subtitles. Write exactly what is said, in German, with correct spelling, ` +
+    `umlauts, ß, capitalization and punctuation; do not translate, summarize or skip parts. ` +
+    `Split it into subtitle lines of one short sentence or clause each (max ~12 words), in order, covering the whole video. ` +
+    `For each line give the time it starts being spoken as MM:SS (or H:MM:SS for long videos). ` +
+    `Ignore music and sounds. If nobody speaks German in the video, set ok to false. Answer in JSON.`;
+  const schema = {
+    type: 'OBJECT',
+    properties: {
+      ok: { type: 'BOOLEAN', description: 'false if there is no German speech' },
+      title: S('Short German title of the video (max 6 words)'),
+      lines: {
+        type: 'ARRAY',
+        items: {
+          type: 'OBJECT',
+          properties: { start: S('Start time, MM:SS or H:MM:SS'), de: S('The German subtitle line') },
+          required: ['start', 'de'],
+        },
+      },
+    },
+    required: ['ok', 'title', 'lines'],
+  };
+  type Raw = { ok: boolean; title: string; lines: { start: string; de: string }[] };
+  let last: unknown;
+  for (const model of await criticCandidates()) {
+    try {
+      const r = await generate<Raw>(prompt, schema, { model, video: url, temperature: 0, timeoutMs: VIDEO_TIMEOUT_MS });
+      if (!r.ok || !r.lines?.length) throw new GeminiError('Не нашёл немецкой речи в этом видео');
+      const lines = r.lines
+        .map((l) => ({ t: toSeconds(l.start), de: l.de.trim() }))
+        .filter((l) => l.de)
+        .sort((a, b) => a.t - b.t);
+      return { title: r.title, lines };
+    } catch (e) {
+      last = e;
+      const status = e instanceof GeminiError ? e.status : 0;
+      if (![408, 404, 429, 500, 503].includes(status)) throw e;
     }
   }
   throw last;

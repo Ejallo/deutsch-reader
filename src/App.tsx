@@ -22,6 +22,7 @@ import { QuestChestScreen, RewardLayer } from './components/Quests';
 import { Collection } from './components/Collection';
 import { Chat, Lab } from './components/Chat';
 import { LiveTest } from './components/LiveTest';
+import { VideoTest } from './components/VideoTest';
 import { LAYER_SCREEN, useBack } from './lib/back';
 
 export type View =
@@ -36,7 +37,8 @@ export type View =
   | { name: 'collection' }
   | { name: 'lab' }
   | { name: 'chat' }
-  | { name: 'live' };
+  | { name: 'live' }
+  | { name: 'video' };
 
 /** Where system Back goes from a screen (same targets as the on-screen back buttons). */
 function backTarget(v: View): View | null {
@@ -50,6 +52,7 @@ function backTarget(v: View): View | null {
       return { name: v.from };
     case 'chat':
     case 'live':
+    case 'video':
       return { name: 'lab' };
     default:
       return { name: 'home' };
@@ -153,11 +156,13 @@ function Screens() {
     case 'collection':
       return <Collection onBack={() => setView({ name: 'home' })} />;
     case 'lab':
-      return <Lab onBack={() => setView({ name: 'home' })} onOpen={(id) => setView(id === 'live' ? { name: 'live' } : { name: 'chat' })} />;
+      return <Lab onBack={() => setView({ name: 'home' })} onOpen={(id) => setView({ name: id } as View)} />;
     case 'chat':
       return <Chat onBack={() => setView({ name: 'lab' })} />;
     case 'live':
       return <LiveTest onBack={() => setView({ name: 'lab' })} />;
+    case 'video':
+      return <VideoTest onBack={() => setView({ name: 'lab' })} />;
     case 'settings':
       return <Settings onTab={onTab} onLearn={learn} />;
     case 'words':
