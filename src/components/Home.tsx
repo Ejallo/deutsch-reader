@@ -7,6 +7,7 @@ import { SyncBadge } from './SyncBadge';
 import { Mascot, mascotMood, type DayMood } from './Mascot';
 import { GAME_MIN_WORDS, GAMES, MIN_WORDS, recordLine } from './Games';
 import { QuestsCard } from './Quests';
+import { FocusBanner } from './Decks';
 import { BADGES, wordTier } from '../lib/badges';
 
 interface Props {
@@ -100,6 +101,7 @@ export function Home({ onTab, onLearn, onOpenText, onChest, onAddKey, onGame, on
       </div>
 
       <PetCard streak={streak} left={left} onLearn={onLearn} />
+      <FocusBanner />
 
       {!data.settings.geminiKey && (
         <button className="key-banner" onClick={onAddKey}>

@@ -47,7 +47,24 @@ export interface Word extends Rec {
   example: string;
   createdAt: number;
   card?: SrsCard; // absent until the word's first review
+  deck?: string; // section id, ARCHIVE, or absent = no section
 }
+
+export type DeckColor = 'mint' | 'sky' | 'pink' | 'butter' | 'peach' | 'lav';
+
+/** A user's section of the dictionary ("Работа", "Сказки"); paused sections stay out of the feed and games. */
+export interface Deck extends Rec {
+  id: string;
+  name: string;
+  emoji: string;
+  color: DeckColor;
+  active: boolean;
+  createdAt: number;
+}
+
+/** Built-in sections: words without a section, and learned words kept but never studied. */
+export const LOOSE = 'loose';
+export const ARCHIVE = 'archive';
 
 /** One sentence a chunk is practised in; `gap` is the exact substring hidden in cloze cards. */
 export interface ChunkExample {
@@ -90,6 +107,10 @@ export interface Settings extends Rec {
   theme: Theme;
   learnMode: LearnMode; // what the feed shows
   mascot: MascotId | ''; // '' = not chosen yet, the first run asks
+  looseActive: boolean; // words without a section are studied
+  inboxDeck: string; // section new words go to ('' = none)
+  focusDeck: string; // study only this section ('' = every active one)
+  autoArchive: boolean; // words at full strength move to the archive by themselves
   fieldAt?: Partial<Record<SettingKey, number>>; // when each field was last changed: devices merge settings field by field
 }
 
@@ -161,6 +182,7 @@ export interface AppData {
   words: Record<string, Word>;
   chunks: Record<string, Chunk>;
   forms: Record<string, FormLink>;
+  decks: Record<string, Deck>;
   settings: Settings;
   progress: Progress;
   stats: Stats;
@@ -175,7 +197,8 @@ export const emptyData = (): AppData => ({
   words: {},
   chunks: {},
   forms: {},
-  settings: { geminiKey: '', geminiModel: '', newPerDay: DEFAULT_NEW_PER_DAY, sound: true, listening: true, readerFont: 'onest', readerSize: 19, readerSpacing: 'normal', theme: 'time', learnMode: 'all', mascot: '', updatedAt: 0 },
+  decks: {},
+  settings: { geminiKey: '', geminiModel: '', newPerDay: DEFAULT_NEW_PER_DAY, sound: true, listening: true, readerFont: 'onest', readerSize: 19, readerSpacing: 'normal', theme: 'time', learnMode: 'all', mascot: '', looseActive: true, inboxDeck: '', focusDeck: '', autoArchive: false, updatedAt: 0 },
   progress: { day: '', newIntroduced: 0, reviewed: 0, updatedAt: 0 },
   stats: { xp: 0, streak: 0, lastGoalDay: '', freezeUsedDay: '', milestones: [], gems: 0, freezes: 0, chestDay: '', boostUntil: 0, records: { speed: 0, survival: 0, pairs: 0 }, medals: { speed: 0, survival: 0, pairs: 0 }, bossWonDay: '', gamesDay: '', badges: {}, badgesSeeded: false, bossWins: 0, questsDone: 0, bestCombo: 0, perfectDays: 0, bestMonthQuests: 0, updatedAt: 0 },
   quests: { day: '', items: [], rerolled: false, chest: 'none', week: '', weekly: null, month: '', monthCount: 0, allDoneStreak: 0, lastAllDoneDay: '', updatedAt: 0 },
@@ -267,6 +290,7 @@ export function mergeData(a: AppData, b: AppData): AppData {
     words: mergeMap(a.words ?? {}, b.words ?? {}),
     chunks: mergeMap(a.chunks ?? {}, b.chunks ?? {}),
     forms: mergeMap(a.forms ?? {}, b.forms ?? {}),
+    decks: mergeMap(a.decks ?? {}, b.decks ?? {}),
     settings: mergeSettings(a.settings, b.settings, base.settings),
     progress: newer(a.progress, b.progress, base.progress),
     stats: mergeStats(base.stats, newer(a.stats, b.stats, base.stats)),
@@ -362,11 +386,15 @@ export function saveWord(form: string, w: Omit<Word, 'id' | 'createdAt' | 'updat
     const prev = d.words[key];
     const alive = prev && !prev.deleted;
     const createdAt = alive ? prev.createdAt : t;
-    // Re-saving (e.g. learning <-> known) keeps the review history
+    // Re-saving (e.g. learning <-> known) keeps the review history and the section
     const card = alive ? prev.card : undefined;
+    const deck = alive ? prev.deck : (w.deck ?? (validDeck(d, d.settings.inboxDeck) ? d.settings.inboxDeck : undefined));
+    const word: Word = { ...w, id: key, createdAt, card, updatedAt: t };
+    if (deck && deck !== LOOSE) word.deck = deck;
+    else delete word.deck;
     return {
       ...d,
-      words: { ...d.words, [key]: { ...w, id: key, createdAt, card, updatedAt: t } },
+      words: { ...d.words, [key]: word },
       forms: { ...d.forms, [form]: { lemmaKey: key, updatedAt: t } },
     };
   });
@@ -411,7 +439,7 @@ export function saveReview(key: string, card: SrsCard, wasNew: boolean) {
     const p = todayProgress(d);
     return {
       ...d,
-      words: { ...d.words, [key]: { ...d.words[key], card, updatedAt: t } },
+      words: { ...d.words, [key]: withAutoArchive(d, { ...d.words[key], card, updatedAt: t }) },
       progress: { ...p, newIntroduced: p.newIntroduced + (wasNew ? 1 : 0), reviewed: p.reviewed + 1, updatedAt: t },
     };
   });
@@ -594,16 +622,113 @@ export function wordForForm(d: AppData, form: string): Word | null {
   return w && !w.deleted ? w : null;
 }
 
-export const statusOf = (d: AppData, form: string): FormStatus => wordForForm(d, form)?.status ?? 'new';
+/** Archived words read as known in texts: they were learned and are no longer studied. */
+export function statusOf(d: AppData, form: string): FormStatus {
+  const w = wordForForm(d, form);
+  if (!w) return 'new';
+  return w.deck === ARCHIVE ? 'known' : w.status;
+}
 
-/** Words the mini-games can ask about: anything in the dictionary with a translation. */
-export const unlockedWords = (d: AppData) => Object.values(d.words).filter((w) => !w.deleted && !!(w.meanings || w.translation));
+/** Words the mini-games can ask about: anything studied right now that has a translation. */
+export const unlockedWords = (d: AppData) => Object.values(d.words).filter((w) => !w.deleted && !!(w.meanings || w.translation) && inPlay(d, w));
+
+/* ---------- Dictionary sections ---------- */
+
+/** Stability (days) at which a word counts as fully learned: 5 of 5 dots. */
+export const FULL_STRENGTH = 21;
+
+export const liveDecks = (d: AppData): Deck[] =>
+  Object.values(d.decks ?? {})
+    .filter((x) => !x.deleted)
+    .sort((a, b) => a.createdAt - b.createdAt);
+
+/** A user section that still exists, or one of the built-in ones. */
+export function validDeck(d: AppData, id: string | undefined): boolean {
+  if (!id) return false;
+  if (id === LOOSE || id === ARCHIVE) return true;
+  const x = d.decks?.[id];
+  return !!x && !x.deleted;
+}
+
+/** Section a word is shown in: a deleted or unknown section counts as none. */
+export function deckOf(d: AppData, w: Word): string {
+  if (w.deck === ARCHIVE) return ARCHIVE;
+  return w.deck && validDeck(d, w.deck) ? w.deck : LOOSE;
+}
+
+/** Section the learner chose to study alone, if it still exists. */
+export function focusDeck(d: AppData): string {
+  const f = d.settings.focusDeck;
+  return f && f !== ARCHIVE && validDeck(d, f) ? f : '';
+}
+
+/** Whether a section is studied (feed and games) when no single section is in focus. */
+export function deckActive(d: AppData, id: string): boolean {
+  if (id === ARCHIVE) return false;
+  if (id === LOOSE) return d.settings.looseActive !== false;
+  return !!d.decks?.[id]?.active;
+}
+
+/** Whether the feed and games may ask about this word now. */
+export function inPlay(d: AppData, w: Word): boolean {
+  const k = deckOf(d, w);
+  if (k === ARCHIVE) return false;
+  const f = focusDeck(d);
+  return f ? k === f : deckActive(d, k);
+}
+
+function withAutoArchive(d: AppData, w: Word): Word {
+  if (!d.settings.autoArchive || w.deck === ARCHIVE || (w.card?.stability ?? 0) < FULL_STRENGTH) return w;
+  return { ...w, deck: ARCHIVE };
+}
+
+export function createDeck(name: string, emoji: string, color: DeckColor): string {
+  const t = now();
+  const id = `d${t.toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  update((d) => ({ ...d, decks: { ...d.decks, [id]: { id, name, emoji, color, active: true, createdAt: t, updatedAt: t } } }));
+  return id;
+}
+
+export function updateDeck(id: string, patch: Partial<Pick<Deck, 'name' | 'emoji' | 'color' | 'active'>>) {
+  update((d) => ({ ...d, decks: { ...d.decks, [id]: { ...d.decks[id], ...patch, updatedAt: now() } } }));
+}
+
+/** Deletes the section; its words stay in the dictionary without a section. */
+export function deleteDeck(id: string) {
+  const t = now();
+  update((d) => {
+    const words = { ...d.words };
+    for (const w of Object.values(words)) if (w.deck === id) words[w.id] = { ...w, deck: undefined, updatedAt: t };
+    return { ...d, words, decks: { ...d.decks, [id]: { ...d.decks[id], deleted: true, updatedAt: t } } };
+  });
+  const s = data.settings;
+  const patch: Partial<Settings> = {};
+  if (s.inboxDeck === id) patch.inboxDeck = '';
+  if (s.focusDeck === id) patch.focusDeck = '';
+  if (Object.keys(patch).length) updateSettings(patch);
+}
+
+/** Moves words to a section (LOOSE = none); review history stays. */
+export function moveWords(keys: string[], deck: string) {
+  const t = now();
+  update((d) => {
+    const words = { ...d.words };
+    for (const k of keys) {
+      if (!words[k]) continue;
+      const w: Word = { ...words[k], updatedAt: t };
+      if (deck === LOOSE) delete w.deck;
+      else w.deck = deck;
+      words[k] = w;
+    }
+    return { ...d, words };
+  });
+}
 
 export const liveChunks = (d: AppData) => Object.values(d.chunks ?? {}).filter((c) => !c.deleted);
 
 /** Everything in the review deck the current learn mode includes: words and/or chunks being learned. */
 export const learningCards = (d: AppData, mode: LearnMode = d.settings.learnMode): { card?: SrsCard }[] => [
-  ...(mode === 'chunks' ? [] : Object.values(d.words).filter((w) => !w.deleted && w.status === 'learning')),
+  ...(mode === 'chunks' ? [] : Object.values(d.words).filter((w) => !w.deleted && w.status === 'learning' && inPlay(d, w))),
   ...(mode === 'words' ? [] : liveChunks(d).filter((c) => c.status === 'learning')),
 ];
 

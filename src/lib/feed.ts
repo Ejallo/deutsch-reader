@@ -1,4 +1,4 @@
-import { liveChunks, todayProgress, type AppData, type Chunk, type ChunkExample, type Word } from './store';
+import { inPlay, liveChunks, todayProgress, type AppData, type Chunk, type ChunkExample, type Word } from './store';
 import { MILESTONES } from './gamify';
 import type { Answer } from './srs';
 
@@ -207,7 +207,7 @@ function nextSpecial(d: AppData, s: Session, learning: Word[]): FeedItem | null 
 
   if (s.count >= s.nextSurpriseAt) {
     s.nextSurpriseAt = s.count + between(8, 12);
-    const nouns = d.settings.learnMode === 'chunks' ? [] : Object.values(d.words).filter((w) => !w.deleted && w.article);
+    const nouns = d.settings.learnMode === 'chunks' ? [] : Object.values(d.words).filter((w) => !w.deleted && w.article && inPlay(d, w));
     if (nouns.length >= 3 && Math.random() < 0.5) return specialItem(s, 'blitz', { blitz: shuffle(nouns.map((w) => w.id)) });
     return specialItem(s, 'chest');
   }
@@ -225,7 +225,7 @@ function nextSpecial(d: AppData, s: Session, learning: Word[]): FeedItem | null 
 export function nextItem(d: AppData, s: Session): NextResult {
   const now = Date.now();
   const mode = d.settings.learnMode;
-  const words = mode === 'chunks' ? [] : Object.values(d.words).filter((w) => !w.deleted && w.status === 'learning');
+  const words = mode === 'chunks' ? [] : Object.values(d.words).filter((w) => !w.deleted && w.status === 'learning' && inPlay(d, w));
   const chunks = mode === 'words' ? [] : liveChunks(d).filter((c) => c.status === 'learning' && c.examples.length);
   const units: Unit[] = [
     ...words.map((w) => ({ key: w.id, card: w.card, createdAt: w.createdAt, word: w })),

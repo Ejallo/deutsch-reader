@@ -4422,3 +4422,298 @@ button.link.danger {
   background: var(--pink);
   box-shadow: 0 5px 0 color-mix(in oklch, var(--pink) 72%, black);
 }
+
+/* ---------- Dictionary sections ---------- */
+.deck-row {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  margin: 0 -20px 14px;
+  padding: 4px 20px 8px;
+  scrollbar-width: none;
+}
+.deck-row::-webkit-scrollbar {
+  display: none;
+}
+.deck-card {
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 108px;
+  max-width: 150px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 18px;
+  background: var(--c, var(--card));
+  color: var(--onP);
+  border: 2px solid transparent;
+  text-align: left;
+}
+.deck-card.c-card {
+  background: var(--card);
+  color: var(--ink);
+  border-color: var(--line);
+}
+.deck-card.on {
+  border-color: var(--ink);
+  box-shadow: 0 3px 0 var(--ink);
+}
+.deck-card.paused {
+  opacity: 0.6;
+}
+.deck-card.on.paused {
+  opacity: 0.85;
+}
+.deck-emoji {
+  font-size: 22px;
+  line-height: 1.1;
+}
+.deck-name {
+  font: 700 13px var(--display);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 4px;
+}
+.deck-count {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.75;
+}
+.deck-more {
+  font-size: 11px;
+  font-weight: 800;
+  margin-top: 2px;
+}
+.deck-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 99px;
+  background: var(--ink);
+  color: var(--bg);
+}
+.deck-badge.off {
+  background: var(--card);
+  color: var(--ink);
+}
+.deck-badge.focus {
+  background: var(--card);
+}
+.deck-card.deck-add {
+  min-width: 84px;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--sub);
+  border: 2px dashed var(--line);
+}
+.focus-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 8px 8px 14px;
+  margin: 0 0 12px;
+  border-radius: 16px;
+  background: var(--butter);
+  color: var(--onP);
+  font-weight: 700;
+  font-size: 14px;
+}
+.focus-banner .chip {
+  height: 32px;
+  flex-shrink: 0;
+}
+.dict-deck {
+  font-size: 12px;
+}
+.dict-stats.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 14px 0 6px;
+}
+.deck-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-right: 36px;
+  margin-bottom: 10px;
+}
+.deck-head h2 {
+  font: 700 20px var(--display);
+  margin: 0;
+}
+.deck-head p {
+  margin: 2px 0 0;
+}
+.deck-big {
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  border-radius: 18px;
+  background: var(--c, var(--card2));
+  border: 2px solid var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  padding: 0;
+}
+.deck-big.c-card {
+  background: var(--card2);
+}
+.deck-big.small {
+  width: 40px;
+  height: 40px;
+  border-radius: 13px;
+  font-size: 20px;
+}
+.deck-name-input {
+  flex: 1;
+  min-width: 0;
+  font: 700 18px var(--display);
+  padding: 10px 12px;
+  border-radius: 14px;
+}
+.emoji-pick {
+  background: var(--card2);
+  border-radius: 18px;
+  padding: 10px;
+  margin-bottom: 10px;
+}
+.emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+}
+.emoji-grid button {
+  aspect-ratio: 1;
+  font-size: 22px;
+  border-radius: 12px;
+  background: transparent;
+  border: 2px solid transparent;
+  padding: 0;
+}
+.emoji-grid button.on {
+  border-color: var(--ink);
+  background: var(--card);
+}
+.emoji-own {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--sub);
+  font-weight: 600;
+}
+.emoji-own input {
+  width: 64px;
+  text-align: center;
+  font-size: 22px;
+  padding: 6px;
+  border-radius: 12px;
+}
+.color-dots {
+  display: flex;
+  gap: 10px;
+  margin: 4px 0 6px;
+}
+.color-dots button {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--c);
+  border: 2px solid var(--line);
+  padding: 0;
+}
+.color-dots button.on {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 3px var(--card), 0 0 0 5px var(--ink);
+}
+.deck-settings {
+  margin: 8px -4px 0;
+}
+.deck-settings .set-row {
+  padding: 12px 4px;
+}
+.deck-settings .lbl small {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--sub);
+  margin-top: 2px;
+}
+.deck-cta {
+  width: 100%;
+  margin-top: 14px;
+}
+.deck-delete {
+  display: block;
+  margin: 14px auto 0;
+}
+.move-title {
+  font: 700 19px var(--display);
+  margin: 0 36px 2px 0;
+}
+.move-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+.move-opt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 2px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  text-align: left;
+}
+.move-opt.on {
+  border-color: var(--ink);
+  background: var(--card2);
+}
+.move-opt.dashed {
+  border-style: dashed;
+  color: var(--sub);
+}
+.move-text {
+  flex: 1;
+  min-width: 0;
+}
+.move-text b {
+  display: block;
+  font-size: 15px;
+}
+.move-text small {
+  color: var(--sub);
+  font-size: 12px;
+}
+.move-check {
+  font-weight: 800;
+}
+.word-deck {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  margin-top: 10px;
+  border-radius: 14px;
+  background: var(--card2);
+  color: var(--ink);
+  border: none;
+  font-weight: 600;
+}

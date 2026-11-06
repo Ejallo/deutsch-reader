@@ -5,12 +5,13 @@ import { useBack } from '../lib/back';
 
 interface Props {
   onClose: () => void;
+  deck?: string; // section the word goes to (the one open in the dictionary)
 }
 
 const ARTICLES = ['', 'der', 'die', 'das'];
 
 /** Add a word or a phrase to the dictionary by hand; Gemini can fill in the details. */
-export function AddWordSheet({ onClose }: Props) {
+export function AddWordSheet({ onClose, deck }: Props) {
   useBack(true, onClose);
   const [phrase, setPhrase] = useState(false);
   const [german, setGerman] = useState('');
@@ -61,6 +62,7 @@ export function AddWordSheet({ onClose }: Props) {
       note: '',
       example: example.trim(),
       status: 'learning',
+      ...(deck ? { deck } : {}),
     });
     onClose();
   };

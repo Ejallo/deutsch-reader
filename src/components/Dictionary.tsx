@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { liveChunks, removeChunks, removeWord, removeWords, resetChunkProgress, resetWordProgress, updateChunk, updateWord, useData, type Chunk, type Word } from '../lib/store';
+import { ARCHIVE, deckOf, validDeck, liveChunks, removeChunks, removeWord, removeWords, resetChunkProgress, resetWordProgress, updateChunk, updateWord, useData, type Chunk, type Word } from '../lib/store';
 import { AddWordSheet } from './AddWordSheet';
 import { AddChunkSheet } from './AddChunkSheet';
 import { fullGerman, shortTranslation } from '../lib/feed';
@@ -7,6 +7,7 @@ import { speak } from '../lib/tts';
 import { TabBar, type Tab } from './TabBar';
 import { articleClass, Mascot, StatStrip, TopBar } from './ui';
 import { useBack } from '../lib/back';
+import { DeckRow, DeckSheet, deckView, FocusBanner, MoveSheet } from './Decks';
 
 interface Props {
   onTab: (t: Tab) => void;
@@ -84,14 +85,18 @@ export function Dictionary({ onTab, onLearn }: Props) {
     <div className="screen">
       <TopBar title="Словарь" right={<StatStrip />} />
       {toggle}
-      {segment === 'words' ? <WordsBody /> : <ChunksBody />}
+      {segment === 'words' ? <WordsBody onLearn={onLearn} /> : <ChunksBody />}
       <TabBar active="words" onTab={onTab} onLearn={onLearn} />
     </div>
   );
 }
 
-function WordsBody() {
+function WordsBody({ onLearn }: { onLearn: () => void }) {
   const data = useData();
+  // Selected section: 'all', LOOSE, ARCHIVE or a deck id
+  const [deckSel, setDeckSel] = useState('all');
+  const [deckSheet, setDeckSheet] = useState<string | null>(null); // section whose settings are open, or 'new'
+  const [moving, setMoving] = useState<string[] | null>(null);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [openId, setOpenId] = useState<string | null>(null);
@@ -103,7 +108,9 @@ function WordsBody() {
   });
   const [picked, setPicked] = useState<Set<string>>(new Set());
 
-  const words = useMemo(() => Object.values(data.words).filter((w) => !w.deleted), [data.words]);
+  const allWords = useMemo(() => Object.values(data.words).filter((w) => !w.deleted), [data.words]);
+  const sel = deckSel === 'all' || validDeck(data, deckSel) ? deckSel : 'all';
+  const words = useMemo(() => (sel === 'all' ? allWords : allWords.filter((w) => deckOf(data, w) === sel)), [allWords, sel, data]);
 
   const stats = useMemo(() => {
     const weekAgo = Date.now() - 7 * DAY;
@@ -137,6 +144,17 @@ function WordsBody() {
 
   return (
     <>
+      <FocusBanner />
+      <DeckRow
+        words={allWords}
+        sel={sel}
+        onSel={(id) => {
+          setDeckSel(id);
+          setPicked(new Set());
+        }}
+        onOpen={setDeckSheet}
+        onNew={() => setDeckSheet('new')}
+      />
       <div className="dict-stats">
         <div className="c-lav">
           <b>{stats.total}</b>
@@ -160,7 +178,7 @@ function WordsBody() {
         <button className="chunky c-lav" onClick={() => setAdding(true)}>
           + Добавить
         </button>
-        {words.length > 0 && (
+        {allWords.length > 0 && (
           <button
             className={`chip ${selecting ? 'on' : ''}`}
             onClick={() => {
@@ -183,7 +201,9 @@ function WordsBody() {
         ))}
       </div>
 
-      {words.length === 0 ? (
+      {allWords.length > 0 && words.length === 0 ? (
+        <p className="muted">{sel === ARCHIVE ? 'В архиве пусто. Выученные слова можно перенести сюда через «Выбрать».' : 'В этом разделе пока нет слов. Добавь их через «Выбрать» → «В раздел» или кнопкой «+ Добавить».'}</p>
+      ) : words.length === 0 ? (
         <div className="empty">
           <Mascot size={96} mood="wait" />
           <p>Словарь пуст. Нажми на незнакомое слово в тексте и «+ В словарь» — или добавь слово вручную.</p>
@@ -215,6 +235,7 @@ function WordsBody() {
                     {w.lemma}
                   </span>
                   <span className="dict-ru ellipsis" style={{ display: 'block' }}>
+                    {sel === 'all' && w.deck && deckOf(data, w) !== 'loose' && <span className="dict-deck">{deckView(data, deckOf(data, w)).emoji} </span>}
                     {shortTranslation(w)}
                   </span>
                 </span>
@@ -237,6 +258,9 @@ function WordsBody() {
           <button className="chip" onClick={() => setPicked(picked.size === shown.length ? new Set() : new Set(shown.map((w) => w.id)))}>
             {picked.size === shown.length ? 'Снять все' : 'Выбрать все'}
           </button>
+          <button className="chunky c-lav" disabled={picked.size === 0} onClick={() => setMoving([...picked])}>
+            В раздел
+          </button>
           <button
             className="chunky c-pink"
             disabled={picked.size === 0}
@@ -251,8 +275,19 @@ function WordsBody() {
           </button>
         </div>
       )}
-      {adding && <AddWordSheet onClose={() => setAdding(false)} />}
+      {adding && <AddWordSheet deck={sel === 'all' ? undefined : sel} onClose={() => setAdding(false)} />}
       {open && !open.deleted && <WordDetails w={open} onClose={() => setOpenId(null)} />}
+      {deckSheet && <DeckSheet id={deckSheet} onClose={() => setDeckSheet(null)} onCreated={setDeckSel} onLearn={onLearn} />}
+      {moving && (
+        <MoveSheet
+          ids={moving}
+          onClose={() => setMoving(null)}
+          onMoved={() => {
+            setPicked(new Set());
+            setSelecting(false);
+          }}
+        />
+      )}
     </>
   );
 }
@@ -439,6 +474,9 @@ function ChunkDetails({ c, onClose }: { c: Chunk; onClose: () => void }) {
 
 function WordDetails({ w, onClose }: { w: Word; onClose: () => void }) {
   useBack(true, onClose);
+  const data = useData();
+  const [moving, setMoving] = useState(false);
+  const deck = deckView(data, deckOf(data, w));
   const [editing, setEditing] = useState(false);
   const [translation, setTranslation] = useState(w.translation);
   const [meanings, setMeanings] = useState(w.meanings);
@@ -503,6 +541,13 @@ function WordDetails({ w, onClose }: { w: Word; onClose: () => void }) {
           <span>добавлено {new Date(w.createdAt).toLocaleDateString('ru-RU')}</span>
         </div>
 
+        <button className="word-deck" onClick={() => setMoving(true)}>
+          <span>Раздел</span>
+          <b>
+            {deck.emoji} {deck.name} ›
+          </b>
+        </button>
+
         {!editing && (
           <div className="sheet-actions">
             <button onClick={() => setEditing(true)}>Исправить перевод</button>
@@ -535,6 +580,7 @@ function WordDetails({ w, onClose }: { w: Word; onClose: () => void }) {
           </div>
         )}
       </div>
+      {moving && <MoveSheet ids={[w.id]} onClose={() => setMoving(false)} />}
     </>
   );
 }
