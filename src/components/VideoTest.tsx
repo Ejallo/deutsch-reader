@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { transcribeVideo, translateParagraph, translateWord, type VideoLine } from '../lib/gemini';
+import { GeminiError, transcribeVideo, translateParagraph, translateWord, type VideoLine } from '../lib/gemini';
 import { lemmaKey, linkForm, statusOf, useData } from '../lib/store';
 import { parseText } from '../lib/text';
 import { TopBar } from './ui';
@@ -12,7 +12,16 @@ interface Transcript {
   title: string;
   lines: VideoLine[];
   source: 'gemini' | 'paste';
+  chunks?: number[]; // Gemini subtitles are made per CHUNK seconds; these are done (absent = complete)
 }
+
+// Gemini subtitles are made in chunks just ahead of playback, so watching starts in ~20 s and a long
+// video never spends quota on parts nobody watched.
+const CHUNK = 180;
+const OVERLAP = 4; // each clip asks a bit more on both sides so lines on a boundary aren't cut
+const AHEAD = 2; // chunks prepared ahead of the one playing
+const PARALLEL = 3;
+const chunkOf = (t: number) => Math.max(0, Math.floor(t / CHUNK));
 
 const cacheKey = (id: string) => `video:${id}`;
 const loadCached = (id: string): Transcript | null => {
@@ -52,6 +61,7 @@ export function parsePasted(text: string): VideoLine[] {
   return lines;
 }
 
+const lineKey = (l: VideoLine) => `${l.t}|${l.de}`;
 const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 
 // --- Minimal YouTube IFrame API typing ---
@@ -61,6 +71,7 @@ interface YTPlayer {
   pauseVideo(): void;
   seekTo(s: number, allowSeekAhead: boolean): void;
   getCurrentTime(): number;
+  getDuration(): number;
   getPlayerState(): number;
   setPlaybackRate(r: number): void;
   destroy(): void;
@@ -96,10 +107,19 @@ export function VideoTest({ onBack }: { onBack: () => void }) {
   const [url, setUrl] = useState(() => localStorage.getItem('video:last') ?? '');
   const [id, setId] = useState<string | null>(null);
   const [tr, setTr] = useState<Transcript | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState('');
   const [paste, setPaste] = useState<string | null>(null);
+  // Playback position reported by the player, as a chunk index, and the video length
+  const [cur, setCur] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [loading, setLoading] = useState<number[]>([]);
+  const inflight = useRef(new Set<number>());
+  const waitUntil = useRef(0); // after a rate-limit error, pause new requests until then
+  const [retryTick, setRetryTick] = useState(0);
+  const trRef = useRef<Transcript | null>(null);
+  const idRef = useRef<string | null>(null);
+  trRef.current = tr;
+  idRef.current = id;
 
   const open = (raw: string) => {
     const vid = videoIdOf(raw);
@@ -109,33 +129,90 @@ export function VideoTest({ onBack }: { onBack: () => void }) {
       return;
     }
     localStorage.setItem('video:last', raw.trim());
+    inflight.current.clear();
+    waitUntil.current = 0;
+    setLoading([]);
+    setCur(0);
+    setDuration(0);
     setId(vid);
     setTr(loadCached(vid));
     setPaste(null);
   };
 
-  const save = (t: Transcript) => {
-    if (!id) return;
-    localStorage.setItem(cacheKey(id), JSON.stringify(t));
+  const save = (vid: string, t: Transcript) => {
+    localStorage.setItem(cacheKey(vid), JSON.stringify(t));
+    if (idRef.current !== vid) return;
+    trRef.current = t;
     setTr(t);
   };
 
-  const transcribe = async () => {
-    if (!id) return;
-    setBusy(true);
-    setError('');
-    setElapsed(0);
-    const started = Date.now();
-    const tick = setInterval(() => setElapsed(Math.round((Date.now() - started) / 1000)), 1000);
+  const total = duration ? Math.ceil(duration / CHUNK) : 0;
+  const pending = tr?.chunks ? Array.from({ length: total }, (_, k) => k).filter((k) => !tr.chunks!.includes(k)) : [];
+
+  /** Makes subtitles for one chunk and merges them in, keeping only lines that start inside it. */
+  const loadChunk = async (vid: string, k: number) => {
+    inflight.current.add(k);
+    setLoading([...inflight.current]);
+    const start = k * CHUNK;
+    const end = Math.min(start + CHUNK, duration);
     try {
-      const r = await transcribeVideo(`https://www.youtube.com/watch?v=${id}`);
-      save({ title: r.title, lines: r.lines, source: 'gemini' });
+      const r = await transcribeVideo(`https://www.youtube.com/watch?v=${vid}`, {
+        start: Math.max(0, start - OVERLAP),
+        end: Math.min(duration, end + OVERLAP),
+      });
+      const own = r.lines.filter((l) => (k === 0 || l.t >= start) && (l.t < end || end >= duration));
+      // Merge into the latest saved copy (other chunks may have finished meanwhile)
+      const prev = idRef.current === vid ? trRef.current : loadCached(vid);
+      if (!prev?.chunks) return;
+      const lines = [...prev.lines.filter((l) => l.t < start || l.t >= end), ...own].sort((a, b) => a.t - b.t);
+      save(vid, {
+        ...prev,
+        title: prev.title === 'Видео' && r.title ? r.title : prev.title,
+        lines,
+        chunks: [...new Set([...prev.chunks, k])].sort((a, b) => a - b),
+      });
+      // Keep a rate-limit notice visible while its pause lasts
+      if (idRef.current === vid && Date.now() >= waitUntil.current) setError('');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не получилось');
+      if (idRef.current !== vid) return;
+      const status = e instanceof GeminiError ? e.status : 0;
+      if (status === 429 || status === 408 || status === 503) {
+        // Rate limit or a hang: wait a bit, then the scheduler tries again
+        waitUntil.current = Date.now() + 20000;
+        setTimeout(() => setRetryTick((n) => n + 1), 20500);
+        setError(status === 429 ? 'Лимит Gemini в минуту — продолжу через 20 секунд' : 'Gemini долго молчит — попробую ещё раз');
+      } else {
+        setError(e instanceof Error ? e.message : 'Не получилось');
+        waitUntil.current = Number.MAX_SAFE_INTEGER; // stop until the user taps «Повторить»
+      }
     } finally {
-      clearInterval(tick);
-      setBusy(false);
+      if (idRef.current === vid) {
+        inflight.current.delete(k);
+        setLoading([...inflight.current]);
+      }
     }
+  };
+
+  // Scheduler: the chunk playing now first, then the next AHEAD ones, at most PARALLEL at a time
+  useEffect(() => {
+    if (!id || !tr?.chunks || !total || Date.now() < waitUntil.current) return;
+    const wanted: number[] = [];
+    for (let k = cur; k <= Math.min(total - 1, cur + AHEAD); k++) if (!tr.chunks.includes(k) && !inflight.current.has(k)) wanted.push(k);
+    for (const k of wanted.slice(0, Math.max(0, PARALLEL - inflight.current.size))) void loadChunk(id, k);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, tr, cur, total, loading.length, retryTick]);
+
+  const startGemini = () => {
+    if (!id) return;
+    setError('');
+    waitUntil.current = 0;
+    save(id, { title: 'Видео', lines: [], source: 'gemini', chunks: [] });
+  };
+
+  const retry = () => {
+    setError('');
+    waitUntil.current = 0;
+    setRetryTick((n) => n + 1);
   };
 
   const applyPaste = () => {
@@ -144,7 +221,7 @@ export function VideoTest({ onBack }: { onBack: () => void }) {
       setError('Не нашёл таймкодов. Нужен текст из «Показать расшифровку» на YouTube: время, потом фраза.');
       return;
     }
-    save({ title: 'Видео', lines, source: 'paste' });
+    if (id) save(id, { title: 'Видео', lines, source: 'paste' });
     setPaste(null);
     setError('');
   };
@@ -171,26 +248,40 @@ export function VideoTest({ onBack }: { onBack: () => void }) {
   return (
     <div className="screen video-screen">
       <TopBar title={tr?.title ?? '🎬 Видео'} back="Ссылка" onBack={() => setId(null)} />
-      <Player key={id} id={id} lines={tr?.lines ?? []} source={tr?.title}>
+      <Player
+        key={id}
+        id={id}
+        lines={tr?.lines ?? []}
+        source={tr?.title}
+        waiting={!!tr?.chunks && total > 0 && !tr.chunks.includes(cur)}
+        onTick={(t, d) => {
+          setCur((c) => (chunkOf(t) === c ? c : chunkOf(t)));
+          setDuration((old) => (d && Math.abs(d - old) > 1 ? d : old));
+        }}
+      >
         {!tr && paste === null && (
           <div className="video-empty">
-            {busy ? (
-              <p className="muted" style={{ fontWeight: 700 }}>
-                Gemini смотрит видео… {elapsed} с<br />
-                <span className="small">Обычно 20–90 секунд, зависит от длины.</span>
-              </p>
-            ) : (
+            <button className="chunky c-peach wide" onClick={startGemini} disabled={!hasKey}>
+              ✨ Сделать субтитры (Gemini)
+            </button>
+            {!hasKey && <p className="muted small">Нужен ключ Gemini в настройках.</p>}
+            <button className="chunky c-card wide" onClick={() => setPaste('')}>
+              📋 Вставить расшифровку с YouTube
+            </button>
+            {error && <p className="error">{error}</p>}
+          </div>
+        )}
+        {tr?.chunks && total > 0 && (pending.length > 0 || error) && (
+          <div className="video-status small">
+            {pending.length === 0 ? 'Субтитры готовы' : `Субтитры: готово ${total - pending.length} из ${total}${loading.length ? ' · готовлю…' : ''}`}
+            {error && (
               <>
-                <button className="chunky c-peach wide" onClick={() => void transcribe()} disabled={!hasKey}>
-                  ✨ Сделать субтитры (Gemini)
-                </button>
-                {!hasKey && <p className="muted small">Нужен ключ Gemini в настройках.</p>}
-                <button className="chunky c-card wide" onClick={() => setPaste('')}>
-                  📋 Вставить расшифровку с YouTube
+                <span className="error"> {error}</span>{' '}
+                <button className="link" onClick={retry}>
+                  Повторить
                 </button>
               </>
             )}
-            {error && <p className="error">{error}</p>}
           </div>
         )}
         {paste !== null && (
@@ -225,7 +316,16 @@ export function VideoTest({ onBack }: { onBack: () => void }) {
   );
 }
 
-function Player({ id, lines, source, children }: { id: string; lines: VideoLine[]; source?: string; children: React.ReactNode }) {
+interface PlayerProps {
+  id: string;
+  lines: VideoLine[];
+  source?: string;
+  waiting: boolean; // subtitles for the part playing now are still being made
+  onTick: (time: number, duration: number) => void;
+  children: React.ReactNode;
+}
+
+function Player({ id, lines, source, waiting, onTick, children }: PlayerProps) {
   const data = useData();
   const host = useRef<HTMLDivElement>(null);
   const player = useRef<YTPlayer | null>(null);
@@ -237,12 +337,14 @@ function Player({ id, lines, source, children }: { id: string; lines: VideoLine[
   const [offset, setOffset] = useState(() => Number(localStorage.getItem(`video:offset:${id}`) ?? 0));
   const [pauseEach, setPauseEach] = useState(false);
   const [showRu, setShowRu] = useState(false);
-  const [ru, setRu] = useState<Record<number, string>>({});
+  const [ru, setRu] = useState<Record<string, string>>({});
   const [sheet, setSheet] = useState<SheetState | null>(null);
   const [follow, setFollow] = useState(true);
   const reqId = useRef(0);
   const lineEls = useRef<(HTMLDivElement | null)[]>([]);
   const pauseAt = useRef<number | null>(null);
+  const tickRef = useRef(onTick);
+  tickRef.current = onTick;
 
   const parsed = useMemo(() => lines.map((l) => parseText(l.de)[0]), [lines]);
 
@@ -273,6 +375,7 @@ function Player({ id, lines, source, children }: { id: string; lines: VideoLine[
           if (!p?.getCurrentTime) return;
           const t = p.getCurrentTime();
           setTime(t);
+          tickRef.current(t, p.getDuration?.() ?? 0);
           if (pauseAt.current !== null && t >= pauseAt.current) {
             pauseAt.current = null;
             p.pauseVideo();
@@ -316,12 +419,13 @@ function Player({ id, lines, source, children }: { id: string; lines: VideoLine[
   };
 
   const translateLine = async (i: number) => {
-    if (ru[i]) return;
+    const k = lineKey(lines[i]);
+    if (ru[k]) return;
     try {
       const text = await translateParagraph(lines[i].de);
-      setRu((r) => ({ ...r, [i]: text }));
+      setRu((r) => ({ ...r, [k]: text }));
     } catch (e) {
-      setRu((r) => ({ ...r, [i]: `⚠ ${(e as Error).message}` }));
+      setRu((r) => ({ ...r, [k]: `⚠ ${(e as Error).message}` }));
     }
   };
 
@@ -353,10 +457,16 @@ function Player({ id, lines, source, children }: { id: string; lines: VideoLine[
         <div className="video-frame">
           <div ref={host} />
         </div>
-        {lines.length > 0 && (
+        {(lines.length > 0 || waiting) && (
           <div className="video-now">
-            {active >= 0 ? <Line parsed={parsed[active]} li={active} data={data} onWord={lookup} /> : <span className="muted">…</span>}
-            {showRu && active >= 0 && <div className="video-ru">{ru[active] ?? 'Перевожу…'}</div>}
+            {waiting ? (
+              <span className="muted video-wait">Готовлю субтитры к этому месту…</span>
+            ) : active >= 0 ? (
+              <Line parsed={parsed[active]} li={active} data={data} onWord={lookup} />
+            ) : (
+              <span className="muted">…</span>
+            )}
+            {showRu && active >= 0 && <div className="video-ru">{ru[lineKey(lines[active])] ?? 'Перевожу…'}</div>}
           </div>
         )}
         {lines.length > 0 && (
@@ -403,7 +513,7 @@ function Player({ id, lines, source, children }: { id: string; lines: VideoLine[
               </button>
               <div>
                 <Line parsed={parsed[i]} li={i} data={data} onWord={lookup} />
-                {ru[i] && <div className="video-ru small">{ru[i]}</div>}
+                {ru[lineKey(l)] && <div className="video-ru small">{ru[lineKey(l)]}</div>}
               </div>
             </div>
           ))}

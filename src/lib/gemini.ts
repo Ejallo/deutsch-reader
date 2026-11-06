@@ -69,6 +69,7 @@ interface GenOptions {
   maxTokens?: number; // cuts off a model that starts repeating itself
   images?: { mimeType: string; data: string }[]; // base64 images sent along with the prompt
   video?: string; // public YouTube URL sent along with the prompt
+  clip?: { start: number; end: number }; // only this part of the video, seconds
 }
 
 const DEFAULT_TIMEOUT_MS = 20000;
@@ -139,7 +140,14 @@ async function callModel<T>(key: string, model: string, prompt: string, schema: 
         {
           role: 'user',
           parts: [
-            ...(opts.video ? [{ fileData: { fileUri: opts.video } }] : []),
+            ...(opts.video
+              ? [
+                  {
+                    fileData: { fileUri: opts.video },
+                    ...(opts.clip ? { videoMetadata: { startOffset: `${Math.floor(opts.clip.start)}s`, endOffset: `${Math.ceil(opts.clip.end)}s` } } : {}),
+                  },
+                ]
+              : []),
             ...(opts.images ?? []).map((inlineData) => ({ inlineData })),
             { text: prompt },
           ],
@@ -646,6 +654,7 @@ export async function scanText(images: { mimeType: string; data: string }[]): Pr
 // --- Video: timed German transcript of a YouTube video ---
 
 const VIDEO_TIMEOUT_MS = 180000;
+const CLIP_TIMEOUT_MS = 90000;
 
 export interface VideoLine {
   t: number; // start, seconds
@@ -659,13 +668,17 @@ const toSeconds = (ts: string) =>
     .map(Number)
     .reduce((acc, n) => acc * 60 + (Number.isFinite(n) ? n : 0), 0);
 
-export async function transcribeVideo(url: string): Promise<{ title: string; lines: VideoLine[] }> {
+const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+
+/** Subtitles for a whole video, or for one clip of it (times in the returned lines are always from the video start). */
+export async function transcribeVideo(url: string, clip?: { start: number; end: number }): Promise<{ title: string; lines: VideoLine[] }> {
   const prompt =
-    `Transcribe the German speech in this video as subtitles. Write exactly what is said, in German, with correct spelling, ` +
+    (clip ? `This is the part of the video from ${mmss(clip.start)} to ${mmss(clip.end)}. ` : '') +
+    `Transcribe the German speech ${clip ? 'in this part' : 'in this video'} as subtitles. Write exactly what is said, in German, with correct spelling, ` +
     `umlauts, ß, capitalization and punctuation; do not translate, summarize or skip parts. ` +
-    `Split it into subtitle lines of one short sentence or clause each (max ~12 words), in order, covering the whole video. ` +
-    `For each line give the time it starts being spoken as MM:SS (or H:MM:SS for long videos). ` +
-    `Ignore music and sounds. If nobody speaks German in the video, set ok to false. Answer in JSON.`;
+    `Split it into subtitle lines of one short sentence or clause each (max ~12 words), in order, covering ${clip ? 'the whole part' : 'the whole video'}. ` +
+    `For each line give the time it starts being spoken as MM:SS (or H:MM:SS for long videos)${clip ? ', counted from the start of the full video' : ''}. ` +
+    `Ignore music and sounds. If nobody speaks German${clip ? ' in this part' : ''}, set ok to false and return no lines. Answer in JSON.`;
   const schema = {
     type: 'OBJECT',
     properties: {
@@ -686,17 +699,28 @@ export async function transcribeVideo(url: string): Promise<{ title: string; lin
   let last: unknown;
   for (const model of await criticCandidates()) {
     try {
-      const r = await generate<Raw>(prompt, schema, { model, video: url, temperature: 0, timeoutMs: VIDEO_TIMEOUT_MS });
-      if (!r.ok || !r.lines?.length) throw new GeminiError('Не нашёл немецкой речи в этом видео');
-      const lines = r.lines
-        .map((l) => ({ t: toSeconds(l.start), de: l.de.trim() }))
-        .filter((l) => l.de)
-        .sort((a, b) => a.t - b.t);
-      return { title: r.title, lines };
+      const r = await generate<Raw>(prompt, schema, {
+        model,
+        video: url,
+        clip,
+        temperature: 0,
+        timeoutMs: clip ? CLIP_TIMEOUT_MS : VIDEO_TIMEOUT_MS,
+      });
+      criticOk = model;
+      // A quiet clip (intro music, pause) is fine; a whole video without speech is not
+      if (!clip && (!r.ok || !r.lines?.length)) throw new GeminiError('Не нашёл немецкой речи в этом видео');
+      let lines = (r.lines ?? []).map((l) => ({ t: toSeconds(l.start), de: l.de.trim() })).filter((l) => l.de);
+      // Models count clip times either from the video start (as asked) or from the clip start: tell them apart
+      if (clip && clip.start > 0 && lines.length) {
+        const sorted = lines.map((l) => l.t).sort((a, b) => a - b);
+        const median = sorted[Math.floor(sorted.length / 2)];
+        if (median < clip.start - 5) lines = lines.map((l) => ({ ...l, t: l.t + clip.start }));
+      }
+      return { title: r.title, lines: lines.sort((a, b) => a.t - b.t) };
     } catch (e) {
       last = e;
       const status = e instanceof GeminiError ? e.status : 0;
-      if (![408, 404, 429, 500, 503].includes(status)) throw e;
+      if (![408, 404, 500, 503].includes(status)) throw e;
     }
   }
   throw last;

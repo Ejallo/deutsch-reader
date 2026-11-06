@@ -4717,3 +4717,15 @@ button.link.danger {
   border: none;
   font-weight: 600;
 }
+.video-status {
+  margin: 4px 0 8px;
+  font-weight: 700;
+  color: var(--sub);
+}
+.video-wait {
+  font: 600 15px var(--body);
+  animation: video-wait 1.4s ease-in-out infinite;
+}
+@keyframes video-wait {
+  50% { opacity: 0.45; }
+}
