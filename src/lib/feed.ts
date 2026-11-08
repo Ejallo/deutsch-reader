@@ -1,4 +1,4 @@
-import { inPlay, liveChunks, todayProgress, type AppData, type Chunk, type ChunkExample, type Word } from './store';
+import { grammarCards, inPlay, liveChunks, mixedGrammarCards, todayProgress, type AppData, type Chunk, type ChunkExample, type Word } from './store';
 import { MILESTONES } from './gamify';
 import type { Answer } from './srs';
 
@@ -14,6 +14,7 @@ export type Format =
   | 'c-tiles'
   | 'c-write'
   | 'c-ru'
+  | 'g-own' // grammar: write your own sentence, checked by Gemini
   | 'more' // offer to go past today's new-card limit
   | 'chest'
   | 'blitz'
@@ -150,10 +151,30 @@ function pickChunkFormat(c: Chunk, last?: Format): Format {
   return shuffle(fresh.length ? fresh : formats)[0];
 }
 
-function makeChunkItem(s: Session, c: Chunk, graded: boolean, format?: Format): FeedItem {
-  const f = format ?? pickChunkFormat(c, s.lastFormat);
+const TILES_MAX_WORDS = 14; // a longer sentence (saved from a text) is a chore to assemble
+
+// Grammar climbs a fixed ladder: recognise -> assemble -> type -> produce your own sentence
+function pickGrammarFormat(c: Chunk, canCheck: boolean, last?: Format): Format {
+  const reps = c.card?.reps ?? 0;
+  const stability = c.card?.stability ?? 0;
+  if (reps === 0) return 'c-choose';
+  let formats: Format[] = ['c-tiles'];
+  if (stability >= 21) formats = canCheck ? ['g-own', 'c-write'] : ['c-write', 'c-tiles'];
+  else if (stability >= 7) formats = ['c-write', 'c-tiles'];
+  const fresh = formats.filter((f) => f !== last);
+  return shuffle(fresh.length ? fresh : formats)[0];
+}
+
+function makeChunkItem(d: AppData, s: Session, c: Chunk, graded: boolean, format?: Format): FeedItem {
+  let f = format ?? (c.topic ? pickGrammarFormat(c, !!d.settings.geminiKey, s.lastFormat) : pickChunkFormat(c, s.lastFormat));
   // A different sentence each time so the chunk, not one sentence, gets remembered
-  const ex = Math.floor(Math.random() * c.examples.length);
+  let indices = c.examples.map((_, i) => i);
+  if (f === 'c-tiles' && c.topic) {
+    const short = indices.filter((i) => sentenceWords(c.examples[i].de).length <= TILES_MAX_WORDS);
+    if (short.length) indices = short;
+    else f = 'c-write';
+  }
+  const ex = indices[Math.floor(Math.random() * indices.length)];
   const e = c.examples[ex];
   const item: FeedItem = { key: ++s.seq, wordId: '', chunkId: c.id, ex, format: f, graded, options: [], answer: -1 };
   if (f === 'c-choose') {
@@ -181,7 +202,7 @@ interface Unit {
 export const itemKey = (item: FeedItem) => (item.chunkId ? `c:${item.chunkId}` : item.wordId);
 
 function makeUnitItem(d: AppData, s: Session, u: Unit, graded: boolean, format?: Format): FeedItem {
-  return u.chunk ? makeChunkItem(s, u.chunk, graded, format) : makeItem(d, s, u.word!, graded, format);
+  return u.chunk ? makeChunkItem(d, s, u.chunk, graded, format) : makeItem(d, s, u.word!, graded, format);
 }
 
 const specialItem = (s: Session, format: Format, extra: Partial<FeedItem> = {}): FeedItem => ({
@@ -222,11 +243,12 @@ function nextSpecial(d: AppData, s: Session, learning: Word[]): FeedItem | null 
   return null;
 }
 
-export function nextItem(d: AppData, s: Session): NextResult {
+/** The next card; with a topic, only that grammar topic is practised (a block, before it mixes into the feed). */
+export function nextItem(d: AppData, s: Session, topic?: string): NextResult {
   const now = Date.now();
   const mode = d.settings.learnMode;
-  const words = mode === 'chunks' ? [] : Object.values(d.words).filter((w) => !w.deleted && w.status === 'learning' && inPlay(d, w));
-  const chunks = mode === 'words' ? [] : liveChunks(d).filter((c) => c.status === 'learning' && c.examples.length);
+  const words = topic || mode === 'chunks' ? [] : Object.values(d.words).filter((w) => !w.deleted && w.status === 'learning' && inPlay(d, w));
+  const chunks = topic ? grammarCards(d, topic) : mode === 'words' ? [] : [...liveChunks(d).filter((c) => c.status === 'learning' && c.examples.length), ...mixedGrammarCards(d)];
   const units: Unit[] = [
     ...words.map((w) => ({ key: w.id, card: w.card, createdAt: w.createdAt, word: w })),
     ...chunks.map((c) => ({ key: `c:${c.id}`, card: c.card, createdAt: c.createdAt, chunk: c })),
@@ -237,7 +259,12 @@ export function nextItem(d: AppData, s: Session): NextResult {
   const queued = s.pending.shift();
   if (queued && byKey.has(itemKey(queued))) return { item: queued };
 
-  const special = nextSpecial(d, s, words);
+  // A topic block stays on topic: of the surprises, only the daily goal celebration interrupts it
+  if (topic && s.celebrateGoal) {
+    s.celebrateGoal = false;
+    return { item: specialItem(s, 'goal') };
+  }
+  const special = topic ? null : nextSpecial(d, s, words);
   if (special) return { item: special };
 
   const notRecent = (u: Unit) => !s.recent.includes(u.key);
@@ -257,7 +284,8 @@ export function nextItem(d: AppData, s: Session): NextResult {
   const fresh = units
     .filter((u) => !u.card && !s.introduced.has(u.key))
     .sort((a, b) => Number(!a.chunk) - Number(!b.chunk) || a.createdAt - b.createdAt);
-  if (fresh[0] && todayProgress(d).newIntroduced < d.settings.newPerDay + s.extraNew) {
+  // Opening a topic is a deliberate choice: the daily limit for new cards doesn't apply to it
+  if (fresh[0] && (topic || todayProgress(d).newIntroduced < d.settings.newPerDay + s.extraNew)) {
     const u = fresh[0];
     s.introduced.add(u.key);
     s.pending.push(makeUnitItem(d, s, u, true, u.chunk ? 'c-choose' : 'choose'));
@@ -343,4 +371,4 @@ export function checkChunk(c: Chunk, input: string): Answer {
 
 /** Tiles are right when the words come out in the sentence's order (case-insensitive). */
 export const checkTiles = (e: ChunkExample, order: string[]): Answer =>
-  order.join(' ').toLowerCase() === sentenceWords(e.de).join(' ').toLowerCase() ? 'good' : 'again';
+  [e.de, ...(e.alt ?? [])].some((s) => order.join(' ').toLowerCase() === sentenceWords(s).join(' ').toLowerCase()) ? 'good' : 'again';

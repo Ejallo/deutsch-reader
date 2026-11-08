@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { getData, markMilestone, useData, type Word } from '../lib/store';
+import { getData, markMilestone, recordGrammarMisses, useData, type Word } from '../lib/store';
+import { normalizeTopic } from '../lib/grammar';
 import { fullGerman, shortTranslation } from '../lib/feed';
 import { levelOf, RARITY, rollRange, rollRarity, rollUpgrade, XP, type Rarity } from '../lib/gamify';
 import { checkSentence, type SentenceCheck } from '../lib/gemini';
@@ -258,6 +259,7 @@ export function SentenceCard({ w, done, onFinish, onNext }: { w: Word; done: boo
     try {
       const r = await checkSentence(fullGerman(w), text.trim());
       setCheck(r);
+      recordGrammarMisses([...new Set(r.issues.map((i) => normalizeTopic(i.topic)))]);
       const xp = !r.usesWord ? 0 : r.ok ? XP.sentenceOk : XP.sentenceFixed;
       if (r.ok && r.usesWord) sfx.correct(3);
       else sfx.almost();

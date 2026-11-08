@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { makeChunk, translateParagraph, type ChunkInfo, type PhraseInfo, type WordInfo } from '../lib/gemini';
-import { addXp, lemmaKey, removeWord, saveChunk, saveWord, useData, wordForForm, type WordStatus } from '../lib/store';
+import { explainSentence, makeChunk, translateParagraph, type ChunkInfo, type PhraseInfo, type WordInfo } from '../lib/gemini';
+import { addXp, lemmaKey, removeWord, saveChunk, saveGrammarExample, saveWord, useData, wordForForm, type ChunkExample, type WordStatus } from '../lib/store';
+import { cleanExample, fillersFor, grammarHintFor, type GrammarHint } from '../lib/grammar';
 import { articleClass } from './ui';
 import { speak } from '../lib/tts';
 import { useBack } from '../lib/back';
@@ -12,18 +13,21 @@ export type SheetState =
 interface Props {
   state: SheetState;
   source?: string; // title of the text, remembered on saved chunks
+  onGrammar?: (topic: string) => void; // absent where leaving the screen would lose the learner's place
   onClose: () => void;
   onRetry: () => void;
 }
 
-export function WordSheet({ state, source, onClose, onRetry }: Props) {
+export function WordSheet({ state, source, onGrammar, onClose, onRetry }: Props) {
   useBack(true, onClose);
+  const hint = state.kind === 'word' ? grammarHintFor(state.word) : null;
   return (
     <div className="sheet" role="dialog" aria-label="Перевод">
       <button className="sheet-close" onClick={onClose} aria-label="Закрыть">
         ×
       </button>
       {state.kind === 'word' ? <WordBody state={state} /> : <PhraseBody state={state} />}
+      {hint && state.kind === 'word' && <GrammarBox key={`${state.word}|${state.sentence}`} hint={hint} word={state.word} sentence={state.sentence} onGrammar={onGrammar} />}
       {state.info && <ChunkMaker key={state.kind === 'word' ? state.word : state.phrase} hint={state.kind === 'word' ? state.word : state.phrase} sentence={state.sentence} source={source} />}
       <SentenceTools sentence={state.sentence} />
       {state.error && (
@@ -216,6 +220,79 @@ function ChunkMaker({ hint, sentence, source }: { hint: string; sentence: string
               {st.loading ? 'Ищу другой…' : 'Другой вариант'}
             </button>
           </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** A tapped word that is a grammar point: the rule, a breakdown of this sentence, and saving it as practice. */
+function GrammarBox({ hint, word, sentence, onGrammar }: { hint: GrammarHint; word: string; sentence: string; onGrammar?: (topic: string) => void }) {
+  const { topic, item } = hint;
+  const [why, setWhy] = useState<{ loading?: boolean; text?: string; error?: string }>({});
+  const [save, setSave] = useState<{ loading?: boolean; card?: ChunkExample; error?: string }>({});
+
+  const explain = async () => {
+    setWhy({ loading: true });
+    try {
+      setWhy({ text: await explainSentence(topic, item, sentence) });
+    } catch (e) {
+      setWhy({ error: (e as Error).message });
+    }
+  };
+
+  const keep = async () => {
+    setSave({ loading: true });
+    try {
+      const example = cleanExample({ de: sentence, ru: await translateParagraph(sentence), gap: word, wrong: fillersFor(item, word) });
+      if (!example) {
+        setSave({ error: 'Из этого предложения не получится карточка' });
+        return;
+      }
+      const card = { ...example, own: true };
+      saveGrammarExample(topic.id, { item: item.key, text: item.label, translation: item.ru, note: item.rule }, card);
+      setSave({ card });
+    } catch (e) {
+      setSave({ error: (e as Error).message });
+    }
+  };
+
+  const i = save.card ? save.card.de.indexOf(save.card.gap) : -1;
+  return (
+    <div className="gram-box">
+      <span className="chunk-label">
+        {topic.emoji} Грамматика: {topic.title}
+      </span>
+      <p className="small" style={{ margin: 0 }}>{item.rule}</p>
+      {why.text && <p className="para-tr">{why.text}</p>}
+      {why.error && <p className="error small">{why.error}</p>}
+      {save.card && (
+        <div className="gram-saved">
+          <p className="cloze">
+            {save.card.de.slice(0, i)}
+            <span className="gap">{' '.repeat(Math.max(4, save.card.gap.length))}</span>
+            {save.card.de.slice(i + save.card.gap.length)}
+          </p>
+          <p className="small muted" style={{ margin: 0 }}>{save.card.ru}</p>
+          <small className="gram-own">Карточка добавлена в тему «{topic.title}»</small>
+        </div>
+      )}
+      {save.error && <p className="error small">{save.error}</p>}
+      <div className="row gram-box-actions">
+        {!why.text && (
+          <button className="para-btn" disabled={why.loading} onClick={() => void explain()}>
+            {why.loading ? 'Разбираю…' : 'Разобрать предложение'}
+          </button>
+        )}
+        {!save.card && (
+          <button className="para-btn" disabled={save.loading} onClick={() => void keep()}>
+            {save.loading ? 'Сохраняю…' : 'Сохранить как пример'}
+          </button>
+        )}
+        {onGrammar && (
+          <button className="para-btn" onClick={() => onGrammar(topic.id)}>
+            Учить тему
+          </button>
         )}
       </div>
     </div>

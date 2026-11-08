@@ -72,6 +72,8 @@ export interface ChunkExample {
   ru: string;
   gap: string;
   wrong: string[]; // plausible but wrong fillers for the gap
+  alt?: string[]; // other correct word orders of the same words (accepted on tile cards)
+  own?: boolean; // saved by the learner from a text they read
 }
 
 /** A ready-made phrase learned as a whole ("einen Termin vereinbaren"). */
@@ -85,6 +87,17 @@ export interface Chunk extends Rec {
   status: WordStatus;
   createdAt: number;
   card?: SrsCard;
+  topic?: string; // grammar topic id: this is a grammar card, kept apart from the learner's chunks
+  item?: string; // which point of the topic
+}
+
+/** What the learner has for a grammar topic besides its cards. */
+export interface GrammarState extends Rec {
+  id: string; // topic id
+  intro: string; // the lesson, checked against the topic's reference; '' until one is made
+  ruNote: string; // how it compares with Russian
+  misses: number[]; // when a mistake in real writing or speech was tagged with this topic
+  snoozedAt?: number; // the learner said "not now" to the suggestion
 }
 
 export interface FormLink extends Rec {
@@ -183,6 +196,7 @@ export interface AppData {
   chunks: Record<string, Chunk>;
   forms: Record<string, FormLink>;
   decks: Record<string, Deck>;
+  grammar: Record<string, GrammarState>;
   settings: Settings;
   progress: Progress;
   stats: Stats;
@@ -198,6 +212,7 @@ export const emptyData = (): AppData => ({
   chunks: {},
   forms: {},
   decks: {},
+  grammar: {},
   settings: { geminiKey: '', geminiModel: '', newPerDay: DEFAULT_NEW_PER_DAY, sound: true, listening: true, readerFont: 'onest', readerSize: 19, readerSpacing: 'normal', theme: 'time', learnMode: 'all', mascot: '', looseActive: true, inboxDeck: '', focusDeck: '', autoArchive: false, updatedAt: 0 },
   progress: { day: '', newIntroduced: 0, reviewed: 0, updatedAt: 0 },
   stats: { xp: 0, streak: 0, lastGoalDay: '', freezeUsedDay: '', milestones: [], gems: 0, freezes: 0, chestDay: '', boostUntil: 0, records: { speed: 0, survival: 0, pairs: 0 }, medals: { speed: 0, survival: 0, pairs: 0 }, bossWonDay: '', gamesDay: '', badges: {}, badgesSeeded: false, bossWins: 0, questsDone: 0, bestCombo: 0, perfectDays: 0, bestMonthQuests: 0, updatedAt: 0 },
@@ -291,6 +306,7 @@ export function mergeData(a: AppData, b: AppData): AppData {
     chunks: mergeMap(a.chunks ?? {}, b.chunks ?? {}),
     forms: mergeMap(a.forms ?? {}, b.forms ?? {}),
     decks: mergeMap(a.decks ?? {}, b.decks ?? {}),
+    grammar: mergeMap(a.grammar ?? {}, b.grammar ?? {}),
     settings: mergeSettings(a.settings, b.settings, base.settings),
     progress: newer(a.progress, b.progress, base.progress),
     stats: mergeStats(base.stats, newer(a.stats, b.stats, base.stats)),
@@ -735,12 +751,107 @@ export function moveWords(keys: string[], deck: string) {
   });
 }
 
-export const liveChunks = (d: AppData) => Object.values(d.chunks ?? {}).filter((c) => !c.deleted);
+/** The learner's own chunks. Grammar cards live in the same table but are not chunks to the rest of the app. */
+export const liveChunks = (d: AppData) => Object.values(d.chunks ?? {}).filter((c) => !c.deleted && !c.topic);
 
-/** Everything in the review deck the current learn mode includes: words and/or chunks being learned. */
+/* ---------- Grammar ---------- */
+
+/** Stability (days) at which a grammar card counts as settled. */
+export const GRAMMAR_SETTLED = 7;
+const GRAMMAR_LEARNED_SHARE = 0.8;
+const WEEK_MS = 7 * 24 * 3600 * 1000;
+const WEAK_MISSES = 2; // this many tagged mistakes in a week make a topic worth suggesting
+const MISSES_KEPT = 20;
+
+export const grammarCards = (d: AppData, topic?: string): Chunk[] =>
+  Object.values(d.chunks ?? {}).filter((c) => !c.deleted && !!c.topic && (!topic || c.topic === topic) && c.status === 'learning' && c.examples.length > 0);
+
+export type TopicStatus = 'new' | 'learning' | 'learned';
+
+/** A topic is learned once nearly all of its cards have settled; until then it is practised on its own. */
+export function topicStatus(d: AppData, topic: string): TopicStatus {
+  const cards = grammarCards(d, topic);
+  if (!cards.length) return 'new';
+  const settled = cards.filter((c) => (c.card?.stability ?? 0) >= GRAMMAR_SETTLED).length;
+  return settled / cards.length >= GRAMMAR_LEARNED_SHARE ? 'learned' : 'learning';
+}
+
+/** Cards of a topic waiting now: due reviews and ones never seen. */
+export function topicWaiting(d: AppData, topic: string, at = Date.now()): number {
+  return grammarCards(d, topic).filter((c) => !c.card || c.card.due <= at).length;
+}
+
+/** Cards of learned topics: these leave topic practice and mix into the general feed. */
+export const mixedGrammarCards = (d: AppData) => grammarCards(d).filter((c) => topicStatus(d, c.topic!) === 'learned');
+
+const grammarState = (d: AppData, id: string): GrammarState => d.grammar?.[id] ?? { id, intro: '', ruNote: '', misses: [], updatedAt: 0 };
+
+export function saveGrammarLesson(topic: string, intro: string, ruNote: string, cards: { item: string; text: string; translation: string; note: string; examples: ChunkExample[] }[]) {
+  const t = now();
+  update((d) => {
+    const chunks = { ...d.chunks };
+    for (const c of cards) {
+      const id = `g:${topic}:${c.item}`;
+      const prev = chunks[id];
+      const alive = prev && !prev.deleted;
+      // Regenerating a lesson keeps the review history and the sentences the learner saved
+      const own = alive ? prev.examples.filter((e) => e.own) : [];
+      chunks[id] = { ...c, examples: [...c.examples, ...own], id, topic, status: 'learning', createdAt: alive ? prev.createdAt : t, card: alive ? prev.card : undefined, updatedAt: t };
+    }
+    return { ...d, chunks, grammar: { ...d.grammar, [topic]: { ...grammarState(d, topic), intro, ruNote, updatedAt: t } } };
+  });
+}
+
+/** Adds a sentence from a text to a grammar card, creating the card if the topic hasn't reached it yet. */
+export function saveGrammarExample(topic: string, card: { item: string; text: string; translation: string; note: string }, example: ChunkExample) {
+  const t = now();
+  update((d) => {
+    const id = `g:${topic}:${card.item}`;
+    const prev = d.chunks[id];
+    const alive = prev && !prev.deleted;
+    if (alive && prev.examples.some((e) => e.de === example.de)) return d;
+    const next: Chunk = alive
+      ? { ...prev, examples: [...prev.examples, example], updatedAt: t }
+      : { ...card, id, topic, examples: [example], status: 'learning', createdAt: t, updatedAt: t };
+    return { ...d, chunks: { ...d.chunks, [id]: next } };
+  });
+}
+
+/** Remembers mistakes made in real writing or speech, per topic. */
+export function recordGrammarMisses(topics: string[]) {
+  const ids = topics.filter(Boolean);
+  if (!ids.length) return;
+  const t = now();
+  update((d) => {
+    const grammar = { ...d.grammar };
+    ids.forEach((id, n) => {
+      const g = grammar[id] ?? grammarState(d, id);
+      grammar[id] = { ...g, misses: [...g.misses, t + n].slice(-MISSES_KEPT), updatedAt: t };
+    });
+    return { ...d, grammar };
+  });
+}
+
+export function snoozeGrammarTopic(id: string) {
+  const t = now();
+  update((d) => ({ ...d, grammar: { ...d.grammar, [id]: { ...grammarState(d, id), snoozedAt: t, updatedAt: t } } }));
+}
+
+/** The topic with the most recent mistakes, unless the learner said "not now" this week. */
+export function weakTopic(d: AppData, at = Date.now()): { id: string; misses: number } | null {
+  let best: { id: string; misses: number } | null = null;
+  for (const g of Object.values(d.grammar ?? {})) {
+    if (g.snoozedAt && at - g.snoozedAt < WEEK_MS) continue;
+    const misses = g.misses.filter((m) => at - m < WEEK_MS).length;
+    if (misses >= WEAK_MISSES && (!best || misses > best.misses)) best = { id: g.id, misses };
+  }
+  return best;
+}
+
+/** Everything in the review deck the current learn mode includes: words, chunks and grammar of learned topics. */
 export const learningCards = (d: AppData, mode: LearnMode = d.settings.learnMode): { card?: SrsCard }[] => [
   ...(mode === 'chunks' ? [] : Object.values(d.words).filter((w) => !w.deleted && w.status === 'learning' && inPlay(d, w))),
-  ...(mode === 'words' ? [] : liveChunks(d).filter((c) => c.status === 'learning')),
+  ...(mode === 'words' ? [] : [...liveChunks(d).filter((c) => c.status === 'learning'), ...mixedGrammarCards(d)]),
 ];
 
 export const liveTexts = (d: AppData) =>

@@ -54,7 +54,7 @@ function savedSubs() {
 
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
-export function VoiceCall({ onBack }: { onBack: () => void }) {
+export function VoiceCall({ onBack, onGrammar }: { onBack: () => void; onGrammar: (topic: string) => void }) {
   const [level, setLevel] = useState(savedLevel);
   const [phase, setPhase] = useState<'ready' | 'connecting' | 'live' | 'ended'>('ready');
   const [status, setStatus] = useState('');
@@ -185,7 +185,7 @@ export function VoiceCall({ onBack }: { onBack: () => void }) {
     }
   };
 
-  if (phase === 'ended') return <DialogSummary lines={lines.map((l) => ({ role: l.role, de: l.de }))} level={level} seconds={seconds} onBack={onBack} />;
+  if (phase === 'ended') return <DialogSummary lines={lines.map((l) => ({ role: l.role, de: l.de }))} level={level} seconds={seconds} onBack={onBack} onGrammar={onGrammar} />;
 
   const listening = phase === 'live' && !speaking && !muted && micLevel > 0.02;
   return (

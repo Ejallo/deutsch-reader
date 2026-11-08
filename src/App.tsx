@@ -23,6 +23,7 @@ import { Collection } from './components/Collection';
 import { Lab } from './components/Lab';
 import { VoiceCall } from './components/VoiceCall';
 import { VideoTest } from './components/VideoTest';
+import { GrammarList, GrammarTopicScreen } from './components/Grammar';
 import { LAYER_SCREEN, useBack } from './lib/back';
 
 export type View =
@@ -37,7 +38,10 @@ export type View =
   | { name: 'collection' }
   | { name: 'lab' }
   | { name: 'dialog' }
-  | { name: 'video' };
+  | { name: 'video' }
+  | { name: 'grammar'; back: View }
+  | { name: 'topic'; id: string; back: View }
+  | { name: 'topicFeed'; id: string; back: View };
 
 /** Where system Back goes from a screen (same targets as the on-screen back buttons). */
 function backTarget(v: View): View | null {
@@ -51,6 +55,10 @@ function backTarget(v: View): View | null {
       return { name: v.from };
     case 'dialog':
       return { name: 'lab' };
+    case 'grammar':
+    case 'topic':
+    case 'topicFeed':
+      return v.back;
     default:
       return { name: 'home' };
   }
@@ -126,6 +134,7 @@ function Screens() {
   const tab: Tab = view.name === 'home' || view.name === 'library' || view.name === 'words' || view.name === 'settings' ? view.name : 'home';
   const learn = () => setView({ name: 'feed', from: tab });
   const openText = (id: string) => setView({ name: 'reader', id, from: tab });
+  const openTopic = (id: string) => setView({ name: 'topic', id, back: view });
 
   if (location.search === '?mascots') return <MascotGallery />;
   if (setupDone === null) return null;
@@ -139,7 +148,7 @@ function Screens() {
     case 'add':
       return <AddText onBack={() => setView({ name: 'library' })} onSaved={(id) => setView({ name: 'reader', id, from: 'library' })} />;
     case 'reader':
-      return <Reader id={view.id} onBack={() => setView({ name: view.from })} />;
+      return <Reader id={view.id} onBack={() => setView({ name: view.from })} onGrammar={openTopic} />;
     case 'feed':
       return <Feed onClose={() => setView({ name: view.from })} />;
     case 'key':
@@ -153,9 +162,15 @@ function Screens() {
     case 'collection':
       return <Collection onBack={() => setView({ name: 'home' })} />;
     case 'lab':
-      return <Lab onBack={() => setView({ name: 'home' })} onDialog={() => setView({ name: 'dialog' })} />;
+      return <Lab onBack={() => setView({ name: 'home' })} onDialog={() => setView({ name: 'dialog' })} onGrammar={() => setView({ name: 'grammar', back: { name: 'lab' } })} />;
     case 'dialog':
-      return <VoiceCall onBack={() => setView({ name: 'lab' })} />;
+      return <VoiceCall onBack={() => setView({ name: 'lab' })} onGrammar={(id) => setView({ name: 'topic', id, back: { name: 'lab' } })} />;
+    case 'grammar':
+      return <GrammarList onBack={() => setView(view.back)} onOpen={openTopic} />;
+    case 'topic':
+      return <GrammarTopicScreen id={view.id} onBack={() => setView(view.back)} onTrain={() => setView({ name: 'topicFeed', id: view.id, back: view })} />;
+    case 'topicFeed':
+      return <Feed topic={view.id} onClose={() => setView(view.back)} />;
     case 'video':
       return <VideoTest onBack={() => setView({ name: 'home' })} />;
     case 'settings':

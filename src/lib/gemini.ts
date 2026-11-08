@@ -1,5 +1,6 @@
 import { get, set } from 'idb-keyval';
-import { getData, updateSettings } from './store';
+import { getData, updateSettings, type ChunkExample } from './store';
+import { cleanExample, topicReference, topicTags, type GrammarItem, type GrammarTopic } from './grammar';
 
 const API = 'https://generativelanguage.googleapis.com/v1beta';
 
@@ -375,9 +376,11 @@ export interface SentenceCheck {
   ok: boolean;
   usesWord: boolean;
   corrected: string;
-  issues: { wrong: string; right: string; explanation: string }[];
+  issues: { wrong: string; right: string; explanation: string; topic?: string }[];
   comment: string;
 }
+
+const TOPIC_FIELD = () => S(`Grammar topic of this mistake, exactly one of these ids: ${topicTags()}. Empty string if none fits (spelling, wrong word)`);
 
 export async function checkSentence(word: string, sentence: string): Promise<SentenceCheck> {
   return generate<SentenceCheck>(
@@ -394,8 +397,8 @@ export async function checkSentence(word: string, sentence: string): Promise<Sen
           type: 'ARRAY',
           items: {
             type: 'OBJECT',
-            properties: { wrong: S('Wrong fragment as written'), right: S('Correct fragment'), explanation: S('Short rule in Russian') },
-            required: ['wrong', 'right', 'explanation'],
+            properties: { wrong: S('Wrong fragment as written'), right: S('Correct fragment'), explanation: S('Short rule in Russian'), topic: TOPIC_FIELD() },
+            required: ['wrong', 'right', 'explanation', 'topic'],
           },
         },
         comment: S('One short encouraging remark in Russian'),
@@ -405,14 +408,15 @@ export async function checkSentence(word: string, sentence: string): Promise<Sen
   );
 }
 
-export async function generateText(level: string, topic: string, words: number, include: string[]): Promise<{ title: string; text: string }> {
+export async function generateText(level: string, topic: string, words: number, include: string[], grammar?: GrammarTopic): Promise<{ title: string; text: string }> {
   const weave = include.length
     ? `Naturally use these words (any grammatical form), each at least once: ${include.join(', ')}. `
     : '';
+  const practise = grammar ? `Use this grammar often, correctly and in natural sentences:\n${topicReference(grammar)}\n` : '';
   return generate<{ title: string; text: string }>(
     `Write an original German text for a learner at CEFR level ${level}. Topic: ${topic || 'everyday life'}. ` +
       `About ${words} words, 2-4 paragraphs separated by blank lines, natural and interesting (a short story or a lively description). ` +
-      `Use vocabulary and grammar appropriate for ${level}. ${weave}Answer in JSON.`,
+      `Use vocabulary and grammar appropriate for ${level}. ${weave}${practise}Answer in JSON.`,
     {
       type: 'OBJECT',
       properties: { title: S('Short German title'), text: S('The German text, paragraphs separated by \n\n') },
@@ -506,13 +510,14 @@ async function strictGenerate<T>(prompt: string, schema: object, maxTokens?: num
   throw last;
 }
 
-export async function reviewText(level: string, words: string[], title: string, text: string): Promise<Review> {
+export async function reviewText(level: string, words: string[], title: string, text: string, grammar?: GrammarTopic): Promise<Review> {
   const prompt =
     `You are a strict German editor and CEFR examiner. A text for a learner at level ${level} must be checked and corrected.
 ` +
     `Fix: grammar, spelling, capitalization (only nouns and sentence starts are capitalized), punctuation, unnatural or non-idiomatic phrasing, ` +
     `logic and coherence. Replace words and structures that are above ${level} with simpler ones; keep the text interesting. ` +
     (words.length ? `These words must appear (any form); add them naturally if missing: ${words.join(', ')}. ` : '') +
+    (grammar ? `The text practises this grammar, keep these structures and make sure they are correct:\n${topicReference(grammar)}\n` : '') +
     `Keep the length and paragraph structure. Do not translate. If the text is already perfect, return it unchanged with an empty changes list. ` +
     `List every change.
 
@@ -560,6 +565,7 @@ export interface DialogFix {
   phrase: string;
   translation: string;
   explanation: string;
+  topic?: string; // grammar topic id, '' when none fits
 }
 
 export interface DialogReview {
@@ -613,8 +619,9 @@ export async function reviewDialog(level: string, history: ChatLine[]): Promise<
               phrase: S('The shortest natural correct German phrase with the fix, 2-8 words'),
               translation: S('Russian translation of the phrase'),
               explanation: S('Short rule in Russian, e.g. "после mit — дательный падеж"'),
+              topic: TOPIC_FIELD(),
             },
-            required: ['said', 'phrase', 'translation', 'explanation'],
+            required: ['said', 'phrase', 'translation', 'explanation', 'topic'],
           },
         },
       },
@@ -624,6 +631,130 @@ export async function reviewDialog(level: string, history: ChatLine[]): Promise<
     REVIEW_TIMEOUT_MS,
   );
   return { words: r.words ?? [], fixes: r.fixes ?? [] };
+}
+
+// --- Grammar: lessons written by the model and checked against the hand-written reference ---
+
+export type GrammarStage = 'writing' | 'checking';
+
+export interface GrammarDraft {
+  intro: string;
+  ruNote: string;
+  cards: { item: string; examples: ChunkExample[] }[];
+}
+
+const LESSON_TIMEOUT_MS = 60000;
+const LESSON_MAX_TOKENS = 12000;
+const MIN_ITEM_SHARE = 0.5; // a lesson where most items came back empty is not worth saving
+
+const grammarSchema = {
+  type: 'OBJECT',
+  properties: {
+    intro: S('The rule in simple Russian, 2-3 short sentences'),
+    ruNote: S('One short Russian sentence comparing this with Russian, where that helps; empty string otherwise'),
+    cards: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          item: S('The item key, copied exactly'),
+          examples: {
+            type: 'ARRAY',
+            items: {
+              type: 'OBJECT',
+              properties: {
+                de: S('Short natural German sentence, at most 12 words'),
+                ru: S('Natural Russian translation'),
+                gap: S('The word that tests this grammar point, copied verbatim from "de", a single whole word or form'),
+                wrong: { type: 'ARRAY', items: S('A filler that is definitely wrong in this sentence'), description: 'Exactly 3 items' },
+                alt: { type: 'ARRAY', items: S('The same words in another correct order'), description: 'Other correct word orders of exactly the same words; often empty' },
+              },
+              required: ['de', 'ru', 'gap', 'wrong', 'alt'],
+            },
+          },
+        },
+        required: ['item', 'examples'],
+      },
+    },
+  },
+  required: ['intro', 'ruNote', 'cards'],
+};
+
+/** Writer drafts the lesson, the critic checks it against the reference. Nothing unchecked is ever returned. */
+export async function makeGrammarLesson(t: GrammarTopic, onStage?: (s: GrammarStage) => void): Promise<GrammarDraft> {
+  const reference = topicReference(t);
+  onStage?.('writing');
+  const draft = await generate<GrammarDraft>(
+    `You teach German grammar to a Russian speaker (A2-B1). Topic: ${t.title}.\n\nReference, which is correct and must be followed:\n${reference}\n\n` +
+      `Write the lesson in Russian, then for EVERY item give 3 varied everyday example sentences that clearly practise that item. ` +
+      `"gap" hides the word that tests the point. Each "wrong" filler must be definitely incorrect in that sentence (wrong word order, wrong form or wrong meaning), never a second correct answer. Answer in JSON.`,
+    grammarSchema,
+    { temperature: 0.6, timeoutMs: LESSON_TIMEOUT_MS, maxTokens: LESSON_MAX_TOKENS },
+  );
+  onStage?.('checking');
+  const r = await strictGenerate<GrammarDraft>(
+    `You are a strict German grammar examiner. Below is a lesson for a Russian speaker and the reference it must agree with.\n\nReference:\n${reference}\n\n` +
+      `Lesson as JSON:\n${JSON.stringify(draft)}\n\n` +
+      `Check every statement against the reference and every sentence for correctness and naturalness. Correct whatever is wrong. ` +
+      `For each example make sure "gap" is copied verbatim from "de", that no "wrong" filler could also be correct there, and that "alt" lists only truly correct orders. ` +
+      `Remove any example you cannot make correct. Return the corrected lesson in the same JSON format.`,
+    grammarSchema,
+    LESSON_MAX_TOKENS,
+    LESSON_TIMEOUT_MS,
+  );
+  const usable = t.items.filter((i) => r.cards?.find((c) => c.item === i.key)?.examples?.some((e) => cleanExample(e))).length;
+  if (!r.intro?.trim() || usable < t.items.length * MIN_ITEM_SHARE) throw new GeminiError('Не получилось проверить урок — попробуй ещё раз');
+  return { intro: r.intro.trim(), ruNote: (r.ruNote ?? '').trim(), cards: r.cards };
+}
+
+export interface GrammarCheck {
+  ok: boolean; // no mistakes at all
+  usesTarget: boolean; // the sentence uses the grammar point
+  ruleOk: boolean; // the grammar point itself is right
+  corrected: string;
+  issues: { wrong: string; right: string; explanation: string; topic?: string }[];
+  comment: string;
+}
+
+/** Strict check of a sentence the learner wrote to practise one grammar point. */
+export async function checkGrammarSentence(t: GrammarTopic, item: GrammarItem, sentence: string): Promise<GrammarCheck> {
+  return strictGenerate<GrammarCheck>(
+    `A Russian speaker wrote a German sentence to practise "${item.label}" (${item.ru}) from the topic ${t.title}.\n` +
+      `Sentence: "${sentence}"\n\nReference, which is correct:\n${topicReference(t)}\nThe point being practised: ${item.rule}\n\n` +
+      `Check grammar, spelling and word usage; ignore missing final punctuation. Explanations are short, in Russian, and name the rule. Answer in JSON.`,
+    {
+      type: 'OBJECT',
+      properties: {
+        ok: { type: 'BOOLEAN', description: 'true if the sentence has no mistakes' },
+        usesTarget: { type: 'BOOLEAN', description: 'true if the sentence actually uses the point being practised' },
+        ruleOk: { type: 'BOOLEAN', description: 'true if the point being practised is applied correctly' },
+        corrected: S('The corrected sentence; same as the input if ok'),
+        issues: {
+          type: 'ARRAY',
+          items: {
+            type: 'OBJECT',
+            properties: { wrong: S('Wrong fragment as written'), right: S('Correct fragment'), explanation: S('Short rule in Russian'), topic: TOPIC_FIELD() },
+            required: ['wrong', 'right', 'explanation', 'topic'],
+          },
+        },
+        comment: S('One short encouraging remark in Russian'),
+      },
+      required: ['ok', 'usesTarget', 'ruleOk', 'corrected', 'issues', 'comment'],
+    },
+  );
+}
+
+/** Explains the structure of one sentence from a text, around the grammar point the learner tapped. */
+export async function explainSentence(t: GrammarTopic, item: GrammarItem, sentence: string): Promise<string> {
+  const key = `gx|${item.key}|${sentence}`;
+  if (cache[key]) return cache[key] as string;
+  const r = await generate<{ explanation: string }>(
+    `Explain to a Russian speaker (A2-B1) how this German sentence is built, focusing on "${item.label}":\n"${sentence}"\n\n` +
+      `Reference, which is correct:\n${topicReference(t)}\n\nIn Russian, 2-4 short sentences, naming where the verb stands and why. Answer in JSON.`,
+    { type: 'OBJECT', properties: { explanation: S('The explanation in Russian') }, required: ['explanation'] },
+  );
+  remember(key, r.explanation);
+  return r.explanation;
 }
 
 // --- Scan: German text from photos of pages ---

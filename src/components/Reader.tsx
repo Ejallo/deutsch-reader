@@ -12,6 +12,7 @@ import { useBack } from '../lib/back';
 interface Props {
   id: string;
   onBack: () => void;
+  onGrammar: (topic: string) => void;
 }
 
 type Sel = { p: number; a: number; b: number };
@@ -20,7 +21,7 @@ type ParaTr = { loading?: boolean; text?: string; error?: string };
 const LONG_PRESS_MS = 400;
 const MOVE_TOLERANCE = 10;
 
-export function Reader({ id, onBack }: Props) {
+export function Reader({ id, onBack, onGrammar }: Props) {
   const data = useData();
   const doc = data.texts[id];
   const paragraphs = useMemo(() => parseText(doc?.content ?? ''), [doc?.content]);
@@ -343,6 +344,7 @@ export function Reader({ id, onBack }: Props) {
         <WordSheet
           state={sheet}
           source={doc?.title}
+          onGrammar={onGrammar}
           onClose={closeSheet}
           onRetry={() => {
             if (!sel) return;

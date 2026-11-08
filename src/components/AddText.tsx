@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { addText, useData } from '../lib/store';
 import { scanText, translateTitles } from '../lib/gemini';
 import { TopBar, type Accent } from './ui';
+import { TOPICS as GRAMMAR_TOPICS, topicById } from '../lib/grammar';
 import {
   generate,
   grimmTales,
@@ -302,6 +303,7 @@ function GenerateTab({ onSave }: SaveProps) {
   const { busy, error, run } = useTask();
   const [stage, setStage] = useState<GenStage>('writing');
   const pickedLabels = allWords.filter((w) => picked.has(w.id)).map((w) => w.label);
+  const [grammar, setGrammar] = useState('');
 
   return (
     <>
@@ -329,6 +331,14 @@ function GenerateTab({ onSave }: SaveProps) {
           <button key={id} className={length === id ? 'on' : ''} onClick={() => setLength(id)}>
             {label}
             <small>{time}</small>
+          </button>
+        ))}
+      </div>
+      <div className="overline section-label">Грамматика в тексте</div>
+      <div className="chips">
+        {GRAMMAR_TOPICS.map((t) => (
+          <button key={t.id} className={`chip ${grammar === t.id ? 'on' : ''}`} onClick={() => setGrammar((g) => (g === t.id ? '' : t.id))}>
+            {t.emoji} {t.title}
           </button>
         ))}
       </div>
@@ -393,7 +403,7 @@ function GenerateTab({ onSave }: SaveProps) {
         </div>
       )}
       {error && <p className="error">{error}</p>}
-      <button className="chunky c-peach wide" disabled={busy} onClick={() => void run(async () => onSave(await generate(level, topic, length, weave ? pickedLabels : [], setStage)))}>
+      <button className="chunky c-peach wide" disabled={busy} onClick={() => void run(async () => onSave(await generate(level, topic, length, weave ? pickedLabels : [], setStage, topicById(grammar))))}>
         {!busy ? '✦ Создать текст' : stage === 'writing' ? 'Пишем текст…' : 'Редактор проверяет…'}
       </button>
       {busy && <p className="muted small">Обычно это занимает 15–50 секунд.</p>}

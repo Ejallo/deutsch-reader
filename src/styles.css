@@ -3656,6 +3656,207 @@ button.link.danger {
   opacity: 0.8;
 }
 
+/* ---------- Grammar ---------- */
+.gram-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  text-align: left;
+  font: inherit;
+}
+.gram-ic {
+  font-size: 24px;
+  line-height: 1;
+}
+.gram-txt {
+  flex: 1;
+  min-width: 0;
+}
+.gram-txt b {
+  display: block;
+  font: 700 15px var(--display);
+}
+.gram-txt small {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sub);
+}
+.gram-due {
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 12px;
+  background: var(--peach);
+  color: var(--onP);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 24px;
+  text-align: center;
+}
+.gram-weak {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: 20px;
+  background: var(--butter);
+  color: var(--onP);
+}
+.gram-weak b {
+  font: 700 15px var(--display);
+}
+.gram-weak > span {
+  font-size: 14px;
+  font-weight: 600;
+}
+.gram-weak-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.gram-weak-actions .chunky {
+  flex: 1;
+}
+.gram-intro {
+  margin: 8px 0 0;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+.gram-note {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--card2);
+  font-size: 14px;
+  font-weight: 500;
+}
+.gram-table {
+  width: 100%;
+  margin-top: 14px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.gram-table th,
+.gram-table td {
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+.gram-table th {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--sub);
+}
+.gram-table td:last-child {
+  font-weight: 700;
+}
+.gram-item {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: var(--card);
+  border: 1px solid var(--line);
+}
+.gram-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+.gram-item-head b {
+  font: 700 15px var(--display);
+}
+.gram-item-head > span:not(.gram-dots) {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sub);
+}
+.gram-dots {
+  display: inline-flex;
+  gap: 3px;
+  margin-left: auto;
+  align-self: center;
+}
+.gram-dots i {
+  width: 14px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--track);
+}
+.gram-dots i.on {
+  background: var(--mint);
+}
+.gram-ex {
+  margin: 8px 0 0;
+  font-family: ui-serif, Georgia, serif;
+  font-size: 17px;
+  line-height: 1.4;
+}
+.gram-ex mark {
+  padding: 0 3px;
+  border-radius: 4px;
+  background: var(--butter);
+  color: var(--onP);
+}
+.gram-ex small {
+  display: block;
+  font-family: var(--body);
+  font-size: 13px;
+  color: var(--sub);
+}
+.gram-own {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--sub);
+}
+.gram-cta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 18px;
+}
+.gram-tag {
+  margin-top: 6px;
+}
+.gram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: var(--card2);
+}
+.gram-box-actions {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.gram-saved .cloze {
+  margin: 0;
+}
+.gram-pill {
+  height: 26px;
+  font-size: 12px;
+}
+.result-sheet .gram-rule {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
 /* ---------- Voice dialog ---------- */
 .call-level {
   width: min(260px, 100%);

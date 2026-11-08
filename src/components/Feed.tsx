@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
-import { addXp, countPractice, recordBestCombo, recordPerfectDay, DAILY_GOAL, type LearnMode, getData, learningCards, recordGoal, saveChunkReview, saveReview, todayProgress, updateSettings, useData, type Chunk, type ChunkExample, type Word } from '../lib/store';
+import { addXp, countPractice, grammarCards, recordBestCombo, recordGrammarMisses, recordPerfectDay, DAILY_GOAL, type LearnMode, getData, learningCards, recordGoal, saveChunkReview, saveReview, todayProgress, updateSettings, useData, type Chunk, type ChunkExample, type Word } from '../lib/store';
+import { normalizeTopic, topicById } from '../lib/grammar';
+import { checkGrammarSentence, type GrammarCheck } from '../lib/gemini';
 import { review, type Answer } from '../lib/srs';
 import { afterAnswer, checkChunk, checkGap, checkTiles, checkWritten, EXTRA_NEW_STEP, fullGerman, isSpecial, itemKey, newSession, nextItem, shortTranslation, type FeedItem, type Format } from '../lib/feed';
 import { comboMilestone, comboMultiplier, comboTier, GOLDEN_CHANCE, GOLDEN_GAP, GOLDEN_MULT, levelOf, rollCrit, XP } from '../lib/gamify';
@@ -16,9 +18,10 @@ import { useBack } from '../lib/back';
 
 interface Props {
   onClose: () => void;
+  topic?: string; // practise only this grammar topic
 }
 
-type Result = { answer: Answer; picked?: number; typed?: string; xp?: number; bonus?: number; golden?: boolean };
+type Result = { answer: Answer; picked?: number; typed?: string; xp?: number; bonus?: number; golden?: boolean; check?: GrammarCheck };
 /** An answered card kept so it can be looked at again (read-only). */
 type Seen = { item: FeedItem; result: Result };
 type CardData = { word?: Word; chunk?: Chunk; example?: ChunkExample };
@@ -38,7 +41,7 @@ const MODES: [LearnMode, string][] = [
 // A correct chunk answer faster than this counts as "easy" and is scheduled much further out
 const EASY_MS: Partial<Record<Format, number>> = { 'c-choose': 4000, 'c-tiles': 9000, 'c-write': 7000, 'c-ru': 9000 };
 const BREAK_DRAMA = 5; // losing a combo at least this long gets its own moment
-const NO_GOLD: Format[] = ['intro', 'c-intro', 'sentence'];
+const NO_GOLD: Format[] = ['intro', 'c-intro', 'sentence', 'g-own'];
 const FAST_MS = 3000; // a correct answer quicker than this counts for the "fast" quest
 // Formats with answer buttons get the draining blitz bar (typing takes longer than FAST_MS)
 const BLITZ: Format[] = ['choose', 'listen', 'article', 'c-choose'];
@@ -67,12 +70,13 @@ function resolveCard(data: ReturnType<typeof getData>, item: FeedItem | null): C
 }
 
 /** The right answer and its meaning, shown under an answered card. */
-function answerText(item: FeedItem, { word, chunk, example }: CardData) {
+function answerText(item: FeedItem, { word, chunk, example }: CardData, res?: Result) {
   if (word) return { solution: fullGerman(word), meaning: shortTranslation(word) };
+  if (item.format === 'g-own' && res?.check) return { solution: res.check.corrected, meaning: 'твоё предложение с исправлениями' };
   return item.format === 'c-ru' ? { solution: chunk!.text, meaning: chunk!.translation } : { solution: example!.de, meaning: example!.ru };
 }
 
-export function Feed({ onClose }: Props) {
+export function Feed({ onClose, topic }: Props) {
   const data = useData();
   const session = useRef(newSession());
   const [item, setItem] = useState<FeedItem | null>(null);
@@ -100,7 +104,7 @@ export function Feed({ onClose }: Props) {
   const palLater = (ms: number, fn: () => void) => palTimers.current.push(window.setTimeout(fn, ms));
 
   const load = useCallback(() => {
-    const r = nextItem(getData(), session.current);
+    const r = nextItem(getData(), session.current, topic);
     let it = r.item;
     // Now and then a quiz card turns golden and pays several times the XP
     const s = session.current;
@@ -118,7 +122,7 @@ export function Feed({ onClose }: Props) {
     palTimers.current.forEach(clearTimeout);
     palTimers.current = [];
     setPal({ mood: 'wait' });
-  }, []);
+  }, [topic]);
 
   /** Adds XP and opens the level-up screen when it crosses into a new level. */
   const gainXp = (amount: number) => {
@@ -210,7 +214,7 @@ export function Feed({ onClose }: Props) {
       const fast = Date.now() - shownAt.current < (EASY_MS[item.format] ?? 0);
       if (item.graded) saveChunkReview(c.id, review(c.card, answer, new Date(), fast), !c.card);
       else countPractice();
-      say = item.format === 'c-ru' ? c.text : example.de;
+      say = extra.check?.corrected || (item.format === 'c-ru' ? c.text : example.de);
     } else {
       const w = getData().words[item.wordId];
       if (item.graded) saveReview(w.id, review(w.card, answer), !w.card);
@@ -218,7 +222,7 @@ export function Feed({ onClose }: Props) {
       say = fullGerman(w);
     }
     countTowardGoal();
-    afterAnswer(session.current, item, answer !== 'again', learningCards(getData()).length);
+    afterAnswer(session.current, item, answer !== 'again', topic ? grammarCards(getData(), topic).length : learningCards(getData()).length);
 
     // "Almost" keeps the combo alive but doesn't grow it
     const prevCombo = session.current.combo;
@@ -431,6 +435,8 @@ export function Feed({ onClose }: Props) {
           return <ChunkWriteCard e={example} result={res} onCheck={(typed) => ans(checkGap(example, typed), { typed })} />;
         case 'c-ru':
           return <ChunkRuCard c={chunk} result={res} onCheck={(typed) => ans(checkChunk(chunk, typed), { typed })} />;
+        case 'g-own':
+          return <OwnSentenceCard c={chunk} result={res} onDone={ans} />;
       }
       return null;
     }
@@ -524,13 +530,21 @@ export function Feed({ onClose }: Props) {
         </button>
       </header>
 
-      <div className="segment feed-mode">
-        {MODES.map(([m, label]) => (
-          <button key={m} className={data.settings.learnMode === m ? 'on' : ''} onClick={() => switchMode(m)}>
-            {label}
-          </button>
-        ))}
-      </div>
+      {topic ? (
+        <div className="feed-mode" style={{ textAlign: 'center' }}>
+          <span className="pill sm c-lav">
+            {topicById(topic)?.emoji} {topicById(topic)?.title}
+          </span>
+        </div>
+      ) : (
+        <div className="segment feed-mode">
+          {MODES.map(([m, label]) => (
+            <button key={m} className={data.settings.learnMode === m ? 'on' : ''} onClick={() => switchMode(m)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div ref={stage} className="feed-stage">
         {empty && (
@@ -549,6 +563,7 @@ export function Feed({ onClose }: Props) {
           // Stays mounted while a past card is shown, so a half-typed answer survives the trip back
           <div key={item.key} className={`feed-card ${leaving ? 'leaving' : 'entering'} ${back !== null ? 'parked' : ''} ${result ? `res-${result.answer}` : ''} ${item.golden ? 'golden' : ''} fmt-${item.format}`}>
             {item.golden && <span className="pill golden-pill">✨ Золотая карточка · ×{GOLDEN_MULT} XP</span>}
+            {!topic && chunk?.topic && <span className="pill gram-pill c-lav">{topicById(chunk.topic)?.emoji} {topicById(chunk.topic)?.title}</span>}
             {result?.answer === 'good' &&
               (comboMilestone(combo) || roundDone > 0 || (result.bonus ?? 1) > 1 ? <Confetti count={result.golden ? 160 : 90} /> : <Confetti count={24} power={0.55} />)}
             {renderCard()}
@@ -579,12 +594,12 @@ export function Feed({ onClose }: Props) {
       </div>
 
       {result && back === null && (word || (chunk && example)) && (
-        <ResultSheet result={result} {...answerText(item!, live)} combo={combo} broke={broke} round={roundDone} hint={nextHint()} onNext={goNext} />
+        <ResultSheet result={result} {...answerText(item!, live, result)} rule={chunk?.topic ? chunk.note : undefined} combo={combo} broke={broke} round={roundDone} hint={nextHint()} onNext={goNext} />
       )}
       {seen && (
         <ReviewSheet
           answer={seen.result.answer}
-          text={pastOk ? answerText(seen.item, past!) : null}
+          text={pastOk ? answerText(seen.item, past!, seen.result) : null}
           canBack={canBack}
           onBack={goBack}
           onReturn={() => setBack(null)}
@@ -616,7 +631,7 @@ export function Feed({ onClose }: Props) {
 }
 
 /** Mint «Richtig!» or soft pink «Почти!» sheet under the card. */
-function ResultSheet({ result, solution, meaning, combo, broke, round, hint, onNext }: { result: Result; solution: string; meaning: string; combo: number; broke: number; round: number; hint: string; onNext: () => void }) {
+function ResultSheet({ result, solution, meaning, rule, combo, broke, round, hint, onNext }: { result: Result; solution: string; meaning: string; rule?: string; combo: number; broke: number; round: number; hint: string; onNext: () => void }) {
   const mult = comboMultiplier(combo);
   const bonus = result.bonus ?? 1;
   const roundLine = round > 0 ? `Раунд ${round} пройден! +${ROUND_BONUS_XP} XP` : '';
@@ -647,6 +662,7 @@ function ResultSheet({ result, solution, meaning, combo, broke, round, hint, onN
           <div className="sub">
             Правильно: <b>{solution}</b> — {meaning}{/[.!?…]$/.test(meaning) ? '' : '.'}{result.answer === 'again' ? ' Карточка вернётся через пару карточек.' : ''}
           </div>
+          {rule && <div className="gram-rule">{rule}</div>}
         </div>
       </div>
       {roundLine && <div className="sub" style={{ fontWeight: 800, opacity: 1 }}>{roundLine}</div>}
@@ -904,7 +920,7 @@ function Cloze({ e, reveal }: { e: ChunkExample; reveal: boolean }) {
 function ChunkIntroCard({ c, e, onDone }: { c: Chunk; e: ChunkExample; onDone: () => void }) {
   return (
     <>
-      <span className="feed-label">Новый чанк</span>
+      <span className="feed-label">{c.topic ? 'Новое правило' : 'Новый чанк'}</span>
       <div className="lesson-card">
         <Speaker text={c.text} />
         <div className="feed-word chunk-text">{c.text}</div>
@@ -962,6 +978,80 @@ function ChunkRuCard({ c, result, onCheck }: { c: Chunk; result: Result | null; 
         </p>
       </div>
       <TypeAnswer result={result} onCheck={onCheck} placeholder="…" />
+    </>
+  );
+}
+
+/** Top of the grammar ladder: the learner writes their own sentence and the critic grades the point being practised. */
+function OwnSentenceCard({ c, result, onDone }: { c: Chunk; result: Result | null; onDone: (answer: Answer, extra: Omit<Result, 'answer'>) => void }) {
+  const [text, setText] = useState(result?.typed ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const topic = topicById(c.topic);
+  const item = topic?.items.find((i) => i.key === c.item);
+  const check = result?.check;
+
+  const submit = async () => {
+    const typed = text.trim();
+    if (!typed) {
+      setError('Сначала напиши предложение');
+      return;
+    }
+    if (!topic || !item) return;
+    setBusy(true);
+    setError('');
+    try {
+      const r = await checkGrammarSentence(topic, item, typed);
+      const tagged = r.issues.map((i) => normalizeTopic(i.topic));
+      recordGrammarMisses([...new Set(r.usesTarget && !r.ruleOk ? [...tagged, topic.id] : tagged)]);
+      onDone(!r.usesTarget || !r.ruleOk ? 'again' : r.ok ? 'good' : 'hard', { typed, check: r });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <span className="feed-label">Напиши своё предложение</span>
+      <div className="lesson-card">
+        <div className="feed-word chunk-text">{c.text}</div>
+        <p className="feed-tr">{c.translation}</p>
+        <p className="small muted" style={{ margin: 0 }}>{c.note}</p>
+      </div>
+      <textarea
+        className="sentence-input"
+        rows={3}
+        value={text}
+        disabled={busy || !!result}
+        onChange={(e) => {
+          setText(e.target.value);
+          setError('');
+        }}
+        placeholder="Ich …"
+        autoCapitalize="sentences"
+        autoCorrect="off"
+        spellCheck={false}
+      />
+      {!result && (
+        <button className="chunky c-peach feed-cta" disabled={busy} onClick={() => void submit()}>
+          {busy ? 'Проверяю…' : 'Проверить'}
+        </button>
+      )}
+      {error && <p className="error">{error}</p>}
+      {check && (
+        <div className="sentence-result">
+          {check.issues.map((i, k) => (
+            <p key={k} className="issue">
+              <s>{i.wrong}</s> → <b>{i.right}</b>
+              <span className="small muted"> — {i.explanation}</span>
+            </p>
+          ))}
+          {!check.usesTarget && <p className="small">Здесь нет «{c.text}».</p>}
+          {check.comment && <p className="small muted">{check.comment}</p>}
+        </div>
+      )}
     </>
   );
 }

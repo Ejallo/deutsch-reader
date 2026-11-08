@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { addXp, DIALOG_DECK, ensureDialogDeck, getData, lemmaKey, removeWords, saveWord, type Word } from '../lib/store';
+import { addXp, DIALOG_DECK, ensureDialogDeck, getData, lemmaKey, recordGrammarMisses, removeWords, saveWord, type Word } from '../lib/store';
 import { reviewDialog, type ChatLine, type DialogReview } from '../lib/gemini';
+import { normalizeTopic, topicById } from '../lib/grammar';
 import { questEvent } from '../lib/quests';
 import { sfx } from '../lib/sfx';
 import { TopBar } from './ui';
+import { WeakTopicCard } from './Grammar';
 
 // End of a voice dialog: one review of the whole transcript, and everything it finds goes to the dialog section.
 
@@ -17,6 +19,7 @@ interface Item {
   /** What the learner said wrong, for a corrected phrase. */
   said?: string;
   note?: string;
+  topic?: string; // grammar topic of a mistake
   isNew: boolean;
 }
 
@@ -46,7 +49,7 @@ function saveReview(r: DialogReview): { words: Item[]; fixes: Item[] } {
     fixes: r.fixes.flatMap((f) =>
       keep(
         { ...base, lemma: f.phrase, article: '', plural: '', pos: 'фраза', translation: f.translation, meanings: '', note: `Было: «${f.said}». ${f.explanation}`, example: f.phrase },
-        { de: f.phrase, ru: f.translation, said: f.said, note: f.explanation },
+        { de: f.phrase, ru: f.translation, said: f.said, note: f.explanation, topic: normalizeTopic(f.topic) },
       ),
     ),
   };
@@ -60,6 +63,7 @@ function Row({ item, onRemove }: { item: Item; onRemove: () => void }) {
         <b>{item.de}</b>
         <span>{item.ru}</span>
         {item.note && <small>{item.note}</small>}
+        {topicById(item.topic) && <span className="pill sm c-lav gram-tag">{topicById(item.topic)!.title}</span>}
       </div>
       {item.isNew ? (
         <button onClick={onRemove} aria-label={`Убрать ${item.de} из словаря`}>
@@ -72,7 +76,7 @@ function Row({ item, onRemove }: { item: Item; onRemove: () => void }) {
   );
 }
 
-export function DialogSummary({ lines, level, seconds, onBack }: { lines: ChatLine[]; level: string; seconds: number; onBack: () => void }) {
+export function DialogSummary({ lines, level, seconds, onBack, onGrammar }: { lines: ChatLine[]; level: string; seconds: number; onBack: () => void; onGrammar: (topic: string) => void }) {
   const mine = lines.filter((l) => l.role === 'me');
   const [result, setResult] = useState<{ words: Item[]; fixes: Item[] } | null>(null);
   const [error, setError] = useState('');
@@ -82,7 +86,10 @@ export function DialogSummary({ lines, level, seconds, onBack }: { lines: ChatLi
   const run = () => {
     setError('');
     reviewDialog(level, lines)
-      .then((r) => setResult(saveReview(r)))
+      .then((r) => {
+        recordGrammarMisses(r.fixes.map((f) => normalizeTopic(f.topic)));
+        setResult(saveReview(r));
+      })
       .catch((e) => setError(e instanceof Error ? e.message : 'Не получилось разобрать разговор'));
   };
 
@@ -161,6 +168,7 @@ export function DialogSummary({ lines, level, seconds, onBack }: { lines: ChatLi
           ))}
         </>
       )}
+      {result && <WeakTopicCard onOpen={onGrammar} />}
       {added > 0 && <p className="muted small dialog-where">Всё это в Словаре, раздел «🗣️ Из диалогов». Ненужное убери крестиком.</p>}
 
       <button className="link" style={{ marginTop: 16 }} onClick={onBack}>
