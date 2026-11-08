@@ -5,7 +5,7 @@ import { parseText } from '../lib/text';
 import { TopBar } from './ui';
 import { WordSheet, type SheetState } from './WordSheet';
 
-// Lab test: a YouTube video with German subtitles you can tap. Subtitles come from Gemini (it accepts public
+// A YouTube video with German subtitles you can tap. Subtitles come from Gemini (it accepts public
 // YouTube links) or from a pasted YouTube transcript. Transcripts are cached per video in localStorage.
 
 interface Transcript {
@@ -229,7 +229,7 @@ export function VideoTest({ onBack }: { onBack: () => void }) {
   if (!id) {
     return (
       <div className="screen">
-        <TopBar title="🎬 Видео с субтитрами" back="Тестовое" onBack={onBack} />
+        <TopBar title="🎬 Видео с субтитрами" back="Главная" onBack={onBack} />
         <p className="muted" style={{ fontWeight: 600 }}>
           Вставь ссылку на видео YouTube на немецком. Субтитры можно нажимать — перевод, как в читалке.
         </p>

@@ -20,8 +20,8 @@ import { Game } from './components/Games';
 import { hardReload, useUpdateAvailable } from './lib/update';
 import { QuestChestScreen, RewardLayer } from './components/Quests';
 import { Collection } from './components/Collection';
-import { Chat, Lab } from './components/Chat';
-import { LiveTest } from './components/LiveTest';
+import { Lab } from './components/Lab';
+import { VoiceCall } from './components/VoiceCall';
 import { VideoTest } from './components/VideoTest';
 import { LAYER_SCREEN, useBack } from './lib/back';
 
@@ -36,8 +36,7 @@ export type View =
   | { name: 'questChest' }
   | { name: 'collection' }
   | { name: 'lab' }
-  | { name: 'chat' }
-  | { name: 'live' }
+  | { name: 'dialog' }
   | { name: 'video' };
 
 /** Where system Back goes from a screen (same targets as the on-screen back buttons). */
@@ -50,9 +49,7 @@ function backTarget(v: View): View | null {
     case 'reader':
     case 'feed':
       return { name: v.from };
-    case 'chat':
-    case 'live':
-    case 'video':
+    case 'dialog':
       return { name: 'lab' };
     default:
       return { name: 'home' };
@@ -156,13 +153,11 @@ function Screens() {
     case 'collection':
       return <Collection onBack={() => setView({ name: 'home' })} />;
     case 'lab':
-      return <Lab onBack={() => setView({ name: 'home' })} onOpen={(id) => setView({ name: id } as View)} />;
-    case 'chat':
-      return <Chat onBack={() => setView({ name: 'lab' })} />;
-    case 'live':
-      return <LiveTest onBack={() => setView({ name: 'lab' })} />;
+      return <Lab onBack={() => setView({ name: 'home' })} onDialog={() => setView({ name: 'dialog' })} />;
+    case 'dialog':
+      return <VoiceCall onBack={() => setView({ name: 'lab' })} />;
     case 'video':
-      return <VideoTest onBack={() => setView({ name: 'lab' })} />;
+      return <VideoTest onBack={() => setView({ name: 'home' })} />;
     case 'settings':
       return <Settings onTab={onTab} onLearn={learn} />;
     case 'words':
@@ -170,6 +165,6 @@ function Screens() {
     case 'library':
       return <Library onOpen={openText} onAdd={() => setView({ name: 'add' })} onLearn={learn} onTab={onTab} onAddKey={() => setView({ name: 'key' })} />;
     default:
-      return <Home onTab={onTab} onLearn={learn} onOpenText={openText} onChest={() => setView({ name: 'chest' })} onAddKey={() => setView({ name: 'key' })} onGame={(game) => setView({ name: 'game', game })} onQuestChest={() => setView({ name: 'questChest' })} onCollection={() => setView({ name: 'collection' })} onLab={() => setView({ name: 'lab' })} />;
+      return <Home onTab={onTab} onLearn={learn} onOpenText={openText} onChest={() => setView({ name: 'chest' })} onAddKey={() => setView({ name: 'key' })} onGame={(game) => setView({ name: 'game', game })} onQuestChest={() => setView({ name: 'questChest' })} onCollection={() => setView({ name: 'collection' })} onLab={() => setView({ name: 'lab' })} onVideo={() => setView({ name: 'video' })} />;
   }
 }

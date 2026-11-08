@@ -20,6 +20,7 @@ interface Props {
   onQuestChest: () => void;
   onCollection: () => void;
   onLab: () => void;
+  onVideo: () => void;
 }
 
 const WEEK = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
@@ -63,7 +64,7 @@ function PetCard({ streak, left, onLearn }: { streak: number; left: number; onLe
   );
 }
 
-export function Home({ onTab, onLearn, onOpenText, onChest, onAddKey, onGame, onQuestChest, onCollection, onLab }: Props) {
+export function Home({ onTab, onLearn, onOpenText, onChest, onAddKey, onGame, onQuestChest, onCollection, onLab, onVideo }: Props) {
   const data = useData();
   const streak = currentStreak(data);
   const done = streakDays(data);
@@ -245,6 +246,14 @@ export function Home({ onTab, onLearn, onOpenText, onChest, onAddKey, onGame, on
           </div>
         </div>
       </div>
+
+      <button className="lab-item c-pink-item" onClick={onVideo}>
+        <span className="lab-ic">🎬</span>
+        <div>
+          <b>Видео с субтитрами</b>
+          <span>Ролик с YouTube на немецком: субтитры бегут за видео, нажми на слово — перевод и «Учить».</span>
+        </div>
+      </button>
 
       <button className="lab-entry" onClick={onLab}>
         🧪 <b>Тестовое</b> <span>новые функции на обкатке ›</span>

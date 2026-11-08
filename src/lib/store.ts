@@ -689,6 +689,17 @@ export function createDeck(name: string, emoji: string, color: DeckColor): strin
   return id;
 }
 
+/** Fixed id, so every device fills the same section. */
+export const DIALOG_DECK = 'dialogs';
+
+/** Creates the section for what voice dialogs turn up; a section the learner renamed is left as it is. */
+export function ensureDialogDeck() {
+  const cur = data.decks?.[DIALOG_DECK];
+  if (cur && !cur.deleted) return;
+  const t = now();
+  update((d) => ({ ...d, decks: { ...d.decks, [DIALOG_DECK]: { id: DIALOG_DECK, name: 'Из диалогов', emoji: '🗣️', color: 'lav', active: true, createdAt: t, updatedAt: t } } }));
+}
+
 export function updateDeck(id: string, patch: Partial<Pick<Deck, 'name' | 'emoji' | 'color' | 'active'>>) {
   update((d) => ({ ...d, decks: { ...d.decks, [id]: { ...d.decks[id], ...patch, updatedAt: now() } } }));
 }

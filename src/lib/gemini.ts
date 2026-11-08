@@ -487,11 +487,11 @@ const reviewSchema = {
 };
 
 /** Runs a strict task (editing, correcting) on the strongest Flash that answers, skipping slow or out-of-quota ones. */
-async function strictGenerate<T>(prompt: string, schema: object, maxTokens?: number): Promise<T> {
+async function strictGenerate<T>(prompt: string, schema: object, maxTokens?: number, timeoutMs = CRITIC_TIMEOUT_MS): Promise<T> {
   let last: unknown;
   for (const model of await criticCandidates()) {
     try {
-      const r = await generate<T>(prompt, schema, { model, temperature: 0.1, timeoutMs: CRITIC_TIMEOUT_MS, ...(maxTokens ? { maxTokens } : {}) });
+      const r = await generate<T>(prompt, schema, { model, temperature: 0.1, timeoutMs, ...(maxTokens ? { maxTokens } : {}) });
       criticOk = model;
       return r;
     } catch (e) {
@@ -522,40 +522,11 @@ ${text}`;
   return strictGenerate<Review>(prompt, reviewSchema);
 }
 
-// --- Role-play conversation: a fast partner (default Flash-Lite) and a strict corrector (stronger Flash) ---
+// --- Voice dialog: hints during the call and one strict review of the transcript after it ---
 
 export interface ChatLine {
   role: 'ai' | 'me';
   de: string;
-}
-
-export interface ChatReply {
-  reply: string;
-  translation: string;
-  hints: string[];
-}
-
-/** The partner's next line in the scene; with an empty history it opens the conversation. */
-export async function chatReply(scene: string, level: string, words: string[], history: ChatLine[]): Promise<ChatReply> {
-  const transcript = history.map((l) => `${l.role === 'ai' ? 'You' : 'Learner'}: ${l.de}`).join('\n');
-  return generate<ChatReply>(
-    `You are role-playing with a Russian speaker learning German. Scene: ${scene}\n` +
-      `Stay in your role and speak only German at CEFR level ${level}: short natural replies of 1-3 sentences, ask a question to keep the conversation going. ` +
-      `Do not correct the learner - a separate teacher does that; just react naturally, as a patient native speaker would. ` +
-      (words.length ? `When it fits naturally, use some of these words the learner is studying (any form): ${words.join(', ')}. ` : '') +
-      (transcript ? `\nConversation so far:\n${transcript}\n\nWrite your next line.` : `\nOpen the conversation with your first line.`) +
-      ` Answer in JSON.`,
-    {
-      type: 'OBJECT',
-      properties: {
-        reply: S('Your next line in German'),
-        translation: S('Natural Russian translation of your line'),
-        hints: { type: 'ARRAY', items: S('A short possible answer the learner could give, in German at their level'), description: 'Exactly 2 different possible answers' },
-      },
-      required: ['reply', 'translation', 'hints'],
-    },
-    { temperature: 0.7, timeoutMs: 20000, maxTokens: 800 },
-  );
 }
 
 /** Two short things the learner could say next, for when they are stuck mid-conversation. */
@@ -574,43 +545,85 @@ export async function chatHints(scene: string, level: string, history: ChatLine[
   return (r.hints ?? []).slice(0, 2);
 }
 
-export interface ChatCheck {
-  ok: boolean;
-  corrected: string;
-  issues: { wrong: string; right: string; explanation: string }[];
+export interface DialogWord {
+  lemma: string;
+  article: string;
+  plural: string;
+  pos: string;
+  translation: string;
+  meanings: string;
+  example: string;
 }
 
-/** Checks one learner line in the context of the partner's last line; strict, so it runs on the stronger model. */
-export async function chatCheck(partnerLine: string, line: string, level: string, spoken = false): Promise<ChatCheck> {
-  return strictGenerate<ChatCheck>(
-    `You are a careful German teacher. A Russian speaker (CEFR ${level}) is in a role-play conversation.\n` +
-      `Partner said: "${partnerLine}"\nLearner answered: "${line}"\n\n` +
-      `Check the learner's answer: grammar, word order, cases, articles, verb forms, spelling with umlauts, noun capitalization, and whether the words fit. ` +
-      (spoken
-        ? `The answer was SPOKEN and written down by speech recognition: ignore all capitalization and punctuation, and do not count a word that is ` +
-          `most likely a recognition slip (a similar-sounding word that makes no sense here) - judge only real grammar and vocabulary mistakes. `
-        : `Ignore missing final punctuation and a lowercase first letter. `) +
-      `Do not rewrite a correct answer just to make it more elegant - only real mistakes count. ` +
-      `If it is correct, ok = true, corrected = the answer unchanged, issues = []. ` +
-      `Otherwise give the minimally corrected answer and each mistake with a short Russian explanation that names the rule (e.g. "после mit — дательный падеж"). Answer in JSON.`,
+export interface DialogFix {
+  said: string;
+  phrase: string;
+  translation: string;
+  explanation: string;
+}
+
+export interface DialogReview {
+  words: DialogWord[];
+  fixes: DialogFix[];
+}
+
+const REVIEW_TIMEOUT_MS = 60000;
+const REVIEW_MAX_TOKENS = 8000;
+
+/** Reads a finished voice dialog once: words the learner lacked and the real mistakes they made. */
+export async function reviewDialog(level: string, history: ChatLine[]): Promise<DialogReview> {
+  const transcript = history.map((l) => `${l.role === 'ai' ? 'Partner' : 'Learner'}: ${l.de}`).join('\n');
+  const r = await strictGenerate<Partial<DialogReview>>(
+    `You are a careful German teacher. A Russian speaker (CEFR ${level}) just had a voice conversation in German. ` +
+      `Both sides were written down by speech recognition, so ignore capitalization and punctuation. ` +
+      `Russian speech may appear in Cyrillic, in Latin letters or distorted.\n\nTranscript:\n${transcript}\n\n` +
+      `Find two things.\n` +
+      `1. words: German words the learner did not know. Include one ONLY if the learner said it in Russian instead of German, ` +
+      `or asked how to say something in German, or asked what a German word means. Use the German word the partner gave; ` +
+      `if the partner did not give one, use the natural German equivalent. Do not include words the learner used on their own, and do not invent anything. ` +
+      `Give the dictionary form; for a fixed expression use pos "фраза". Example = one short German sentence with the word, from the conversation if possible.\n` +
+      `2. fixes: real mistakes in the learner's German: grammar, word order, cases, articles, verb forms, wrong word. ` +
+      `Do not count a word that is most likely a recognition slip (a similar-sounding word that makes no sense here), and do not rewrite correct German to make it more elegant. ` +
+      `Merge repeats of the same mistake into one item. Answer in JSON.`,
     {
       type: 'OBJECT',
       properties: {
-        ok: { type: 'BOOLEAN', description: 'true if the answer has no real mistakes' },
-        corrected: S('The minimally corrected answer; unchanged if ok'),
-        issues: {
+        words: {
           type: 'ARRAY',
           items: {
             type: 'OBJECT',
-            properties: { wrong: S('Wrong fragment as written'), right: S('Correct fragment'), explanation: S('Short rule in Russian') },
-            required: ['wrong', 'right', 'explanation'],
+            properties: {
+              lemma: S('Dictionary form without article. Nouns capitalized.'),
+              article: S('der, die or das for nouns; empty string otherwise'),
+              plural: S('Plural form with article for nouns; empty string otherwise'),
+              pos: S('Part of speech in Russian, short (сущ., глагол, прил., нареч., фраза)'),
+              translation: S('Russian translation as meant in the conversation'),
+              meanings: S('Main Russian meanings, comma-separated, max 3'),
+              example: S('One short German sentence with this word'),
+            },
+            required: ['lemma', 'article', 'plural', 'pos', 'translation', 'meanings', 'example'],
+          },
+        },
+        fixes: {
+          type: 'ARRAY',
+          items: {
+            type: 'OBJECT',
+            properties: {
+              said: S('The wrong fragment as the learner said it'),
+              phrase: S('The shortest natural correct German phrase with the fix, 2-8 words'),
+              translation: S('Russian translation of the phrase'),
+              explanation: S('Short rule in Russian, e.g. "после mit — дательный падеж"'),
+            },
+            required: ['said', 'phrase', 'translation', 'explanation'],
           },
         },
       },
-      required: ['ok', 'corrected', 'issues'],
+      required: ['words', 'fixes'],
     },
-    1500,
+    REVIEW_MAX_TOKENS,
+    REVIEW_TIMEOUT_MS,
   );
+  return { words: r.words ?? [], fixes: r.fixes ?? [] };
 }
 
 // --- Scan: German text from photos of pages ---

@@ -1,18 +1,48 @@
 import { useEffect, useRef, useState } from 'react';
 import { startCall, type LiveCall } from '../lib/live';
-import { chatCheck, chatHints, translateParagraph } from '../lib/gemini';
+import { chatHints, translateParagraph } from '../lib/gemini';
 import { questEvent } from '../lib/quests';
-import { ChatSummary, sceneText, type Msg, type Scene } from './Chat';
+import { getData } from '../lib/store';
+import { shuffle } from '../lib/feed';
+import { DialogSummary } from './DialogSummary';
 
-// A role-play phone call over Gemini Live: the partner speaks, the learner answers by voice.
-// Corrections run quietly in the background on the transcripts and are shown only after the call.
+// A free voice dialog over Gemini Live: the partner speaks, the learner answers by voice.
+// After the call the whole transcript is reviewed once and the findings go to the dictionary.
 
 const MAX_SECONDS = 14 * 60; // Live sessions end around 15 minutes; finish cleanly before that
 const SUBS_KEY = 'callSubs';
+const LEVEL_KEY = 'chatLevel';
+const LEVELS = ['A1', 'A2', 'B1', 'B2'];
+const WORDS_IN_PROMPT = 8;
+const VOICE = 'Aoede';
 const SLOWER = 'Bitte wiederhole das langsamer und mit einfacheren Wörtern.';
-const OPENER = 'Beginne jetzt das Gespräch in deiner Rolle mit einem kurzen ersten Satz.';
+const OPENER = 'Beginne jetzt das Gespräch mit einem kurzen ersten Satz und einer einfachen Frage.';
+const SCENE = 'A free everyday conversation with a friendly German speaker.';
 
-type Line = Msg & { open: boolean };
+interface Line {
+  id: number;
+  role: 'ai' | 'me';
+  de: string;
+  ru?: string;
+  showRu?: boolean;
+  open: boolean;
+}
+
+function savedLevel() {
+  try {
+    return localStorage.getItem(LEVEL_KEY) ?? 'A2';
+  } catch {
+    return 'A2';
+  }
+}
+
+/** Words the partner should weave in: a few of the ones being learned, the most forgotten first. */
+function studyWords(): string[] {
+  const learning = Object.values(getData().words).filter((w) => !w.deleted && w.status === 'learning');
+  const hard = [...learning].sort((a, b) => (b.card?.lapses ?? 0) - (a.card?.lapses ?? 0)).slice(0, 4);
+  const rest = shuffle(learning.filter((w) => !hard.includes(w))).slice(0, WORDS_IN_PROMPT - hard.length);
+  return [...hard, ...rest].map((w) => (w.article ? `${w.article} ${w.lemma}` : w.lemma));
+}
 
 function savedSubs() {
   try {
@@ -24,7 +54,8 @@ function savedSubs() {
 
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
-export function VoiceCall({ scene, level, words, onBack }: { scene: Scene; level: string; words: string[]; onBack: () => void }) {
+export function VoiceCall({ onBack }: { onBack: () => void }) {
+  const [level, setLevel] = useState(savedLevel);
   const [phase, setPhase] = useState<'ready' | 'connecting' | 'live' | 'ended'>('ready');
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
@@ -41,6 +72,7 @@ export function VoiceCall({ scene, level, words, onBack }: { scene: Scene; level
   const linesRef = useRef<Line[]>([]);
   const seq = useRef(0);
   const end = useRef<HTMLDivElement>(null);
+  const hasKey = !!getData().settings.geminiKey;
 
   useEffect(() => () => call.current?.hangUp(), []);
   useEffect(() => {
@@ -65,15 +97,6 @@ export function VoiceCall({ scene, level, words, onBack }: { scene: Scene; level
   };
   const patch = (id: number, p: Partial<Line>) => commit(linesRef.current.map((l) => (l.id === id ? { ...l, ...p } : l)));
 
-  /** Checks one finished learner line against what the partner had just said. */
-  const check = (line: Line) => {
-    const before = linesRef.current.filter((l) => l.role === 'ai' && l.id < line.id);
-    const partnerLine = before[before.length - 1]?.de ?? '';
-    chatCheck(partnerLine, line.de, level, true)
-      .then((c) => patch(line.id, { check: c }))
-      .catch(() => patch(line.id, { check: 'error' }));
-  };
-
   /** Streamed transcript pieces join the open line of that speaker; a finished turn closes it. */
   const onTranscript = (who: 'me' | 'ai', text: string, done: boolean) => {
     const cur = linesRef.current;
@@ -82,10 +105,9 @@ export function VoiceCall({ scene, level, words, onBack }: { scene: Scene; level
       if (!closing.length) return;
       // A learner line too short to judge (a cough, "äh") is dropped
       const next = cur
-        .map((l) => (l.open && l.role === who ? { ...l, de: l.de.trim(), open: false, check: who === 'me' ? ('pending' as const) : undefined } : l))
+        .map((l) => (l.open && l.role === who ? { ...l, de: l.de.trim(), open: false } : l))
         .filter((l) => !(l.role === 'me' && closing.some((c) => c.id === l.id) && l.de.length < 2));
       commit(next);
-      if (who === 'me') next.filter((l) => closing.some((c) => c.id === l.id)).forEach(check);
       return;
     }
     if (!text) return;
@@ -98,16 +120,24 @@ export function VoiceCall({ scene, level, words, onBack }: { scene: Scene; level
   const start = async () => {
     setPhase('connecting');
     setError('');
+    try {
+      localStorage.setItem(LEVEL_KEY, level);
+    } catch {
+      // the level is just asked again next time
+    }
+    const words = studyWords();
     const system =
-      `${sceneText(scene)}\n` +
-      `You are on a voice call with a Russian speaker learning German at CEFR level ${level}. Stay in your role the whole time. ` +
-      `Speak only German, slowly and clearly, in short turns of 1-2 sentences, and keep the conversation going with a question. ` +
+      `You are a friendly German speaker on a voice call with a Russian speaker learning German at CEFR level ${level}. ` +
+      `Chat freely about everyday life, plans and whatever the learner brings up. ` +
+      `Speak German, slowly and clearly, in short turns of 1-2 sentences, and keep the conversation going with a question. ` +
       `Do not correct the learner and do not explain grammar - just react naturally, like a patient native speaker. ` +
-      `If they ask you to repeat or to speak slower, do it with simpler words. If they speak Russian, answer in simple German. ` +
+      `If they ask you to repeat or to speak slower, do it with simpler words. ` +
+      `If the learner says something in Russian or asks how to say something, say the German word or phrase clearly, use it in one short sentence, then carry on in German. ` +
+      `If the learner asks what a German word means, give the Russian translation in one or two words, then carry on in German. ` +
       (words.length ? `When it fits naturally, use some of these words the learner is studying: ${words.join(', ')}.` : '');
     try {
       call.current = await startCall(
-        { system, opener: OPENER, voice: scene.voice },
+        { system, opener: OPENER, voice: VOICE },
         {
           onStatus: setStatus,
           onTranscript,
@@ -138,7 +168,7 @@ export function VoiceCall({ scene, level, words, onBack }: { scene: Scene; level
   const askHints = async () => {
     setHinting(true);
     try {
-      setHints(await chatHints(sceneText(scene), level, linesRef.current.map((l) => ({ role: l.role, de: l.de }))));
+      setHints(await chatHints(SCENE, level, linesRef.current.map((l) => ({ role: l.role, de: l.de }))));
     } catch {
       setHints([]);
     } finally {
@@ -155,7 +185,7 @@ export function VoiceCall({ scene, level, words, onBack }: { scene: Scene; level
     }
   };
 
-  if (phase === 'ended') return <ChatSummary scene={scene} msgs={lines} seconds={seconds} onBack={onBack} />;
+  if (phase === 'ended') return <DialogSummary lines={lines.map((l) => ({ role: l.role, de: l.de }))} level={level} seconds={seconds} onBack={onBack} />;
 
   const listening = phase === 'live' && !speaking && !muted && micLevel > 0.02;
   return (
@@ -165,18 +195,20 @@ export function VoiceCall({ scene, level, words, onBack }: { scene: Scene; level
           ✕
         </button>
         <div className="chat-title">
-          {scene.title} <small>· {level}</small>
+          Диалог с ИИ <small>· {level}</small>
         </div>
         {phase === 'live' && <span className="pill call-clock">{clock(seconds)}</span>}
       </header>
 
       <div className="call-stage">
         <div className={`persona ${speaking ? 'speaking' : ''} ${listening ? 'listening' : ''}`} style={{ ['--lvl' as string]: Math.min(1, micLevel * 5) }}>
-          <span>{scene.emoji}</span>
+          <span>🗣️</span>
         </div>
         <div className="call-status">
           {phase === 'ready'
-            ? 'Позвони — собеседник начнёт сам'
+            ? hasKey
+              ? 'Позвони — собеседник начнёт сам'
+              : 'Нужен ключ Gemini — добавь его в настройках'
             : phase === 'connecting'
               ? status || 'Соединяю…'
               : speaking
@@ -185,6 +217,15 @@ export function VoiceCall({ scene, level, words, onBack }: { scene: Scene; level
                   ? 'Микрофон выключен'
                   : 'Слушаю тебя'}
         </div>
+        {phase === 'ready' && (
+          <div className="segment call-level">
+            {LEVELS.map((l) => (
+              <button key={l} className={level === l ? 'on' : ''} onClick={() => setLevel(l)}>
+                {l}
+              </button>
+            ))}
+          </div>
+        )}
         {warning && <div className="call-warning">{warning}</div>}
         {error && <pre className="live-error">{error}</pre>}
 
@@ -246,7 +287,7 @@ export function VoiceCall({ scene, level, words, onBack }: { scene: Scene; level
             </button>
           </>
         ) : (
-          <button className="chunky c-mint call-end" disabled={phase === 'connecting'} onClick={() => void start()}>
+          <button className="chunky c-mint call-end" disabled={phase === 'connecting' || !hasKey} onClick={() => void start()}>
             {phase === 'connecting' ? 'Соединяю…' : '📞 Позвонить'}
           </button>
         )}
