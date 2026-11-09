@@ -317,47 +317,60 @@ export async function makeChunk(hint: string, sentence: string, avoid?: ChunkInf
 }
 
 const TITLES_PER_REQUEST = 12; // long lists made small models skip or merge lines
+const TITLES_MAX_TOKENS = 8000; // reasoning models spend this budget too; a tight cap cuts the JSON off
 
 /**
  * Russian versions of headlines, in small numbered batches. Each translation comes back with its
  * headline number, so a skipped or merged line costs only that line instead of the whole list.
+ * Each finished batch is handed to `onPart` at once. A failed batch doesn't stop the others;
+ * the first failure is rethrown at the end, and a retry only asks for what is still missing.
  */
-export async function translateTitles(titles: string[]): Promise<Record<string, string>> {
-  const out: Record<string, string> = {};
+export async function translateTitles(titles: string[], onPart: (part: Record<string, string>) => void): Promise<void> {
+  const cached: Record<string, string> = {};
   const missing = titles.filter((t) => {
     const hit = cache[`t|${t}`];
-    if (hit) out[t] = hit as string;
+    if (hit) cached[t] = hit as string;
     return !hit;
   });
+  if (Object.keys(cached).length) onPart(cached);
+  let failure: unknown;
   for (let k = 0; k < missing.length; k += TITLES_PER_REQUEST) {
     const batch = missing.slice(k, k + TITLES_PER_REQUEST);
-    const r = await generate<{ items: { n: number; ru: string }[] }>(
-      `Translate these German news headlines into short natural Russian. For each one return its number and the translation.\n` +
-        batch.map((t, i) => `${i + 1}. ${t}`).join('\n'),
-      {
-        type: 'OBJECT',
-        properties: {
-          items: {
-            type: 'ARRAY',
+    try {
+      const r = await generate<{ items: { n: number; ru: string }[] }>(
+        `Translate these German news headlines into short natural Russian. For each one return its number and the translation.\n` +
+          batch.map((t, i) => `${i + 1}. ${t}`).join('\n'),
+        {
+          type: 'OBJECT',
+          properties: {
             items: {
-              type: 'OBJECT',
-              properties: { n: { type: 'INTEGER', description: 'Headline number from the list' }, ru: S('Russian translation of that headline') },
-              required: ['n', 'ru'],
+              type: 'ARRAY',
+              items: {
+                type: 'OBJECT',
+                properties: { n: { type: 'INTEGER', description: 'Headline number from the list' }, ru: S('Russian translation of that headline') },
+                required: ['n', 'ru'],
+              },
             },
           },
+          required: ['items'],
         },
-        required: ['items'],
-      },
-      { maxTokens: 2000 },
-    );
-    for (const { n, ru } of r.items ?? []) {
-      const t = batch[n - 1];
-      if (!t || !ru?.trim() || out[t]) continue;
-      out[t] = ru.trim();
-      remember(`t|${t}`, out[t]);
+        { maxTokens: TITLES_MAX_TOKENS },
+      );
+      const part: Record<string, string> = {};
+      for (const { n, ru } of r.items ?? []) {
+        const t = batch[n - 1];
+        if (!t || !ru?.trim() || part[t]) continue;
+        part[t] = ru.trim();
+        remember(`t|${t}`, part[t]);
+      }
+      onPart(part);
+    } catch (e) {
+      failure ??= e;
+      // Out of quota: the remaining batches would only fail the same way
+      if (e instanceof GeminiError && e.status === 429) break;
     }
   }
-  return out;
+  if (failure) throw failure;
 }
 
 export async function translateParagraph(text: string): Promise<string> {

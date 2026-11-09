@@ -530,29 +530,42 @@ function WikiShelf({ wiki, hint, placeholder, onSave }: SaveProps & { wiki: Wiki
   );
 }
 
+// The API returns up to ~300 stories; each page of headlines costs a few Gemini requests
+const NEWS_PAGE = 30;
+
 function TagesschauShelf({ onSave }: SaveProps) {
   const [ressort, setRessort] = useState<string | null>(''); // null while showing search results
   const [query, setQuery] = useState('');
   const [items, setItems] = useState<NewsItem[]>([]);
   const [ru, setRu] = useState<Record<string, string>>({});
+  const [ruError, setRuError] = useState('');
+  const [ruTry, setRuTry] = useState(0);
+  const [shown, setShown] = useState(NEWS_PAGE);
   const hasKey = !!useData().settings.geminiKey;
   const { busy, error, run } = useTask();
 
+  const showList = (list: NewsItem[]) => {
+    setItems(list);
+    setShown(NEWS_PAGE);
+  };
+
   useEffect(() => {
-    if (ressort !== null) void run(async () => setItems(await tagesschauNews(ressort)));
+    if (ressort !== null) void run(async () => showList(await tagesschauNews(ressort)));
   }, [ressort]);
 
   // Russian headlines help pick a story; fetched in the background, the list works without them
   useEffect(() => {
     if (!hasKey || !items.length) return;
     let live = true;
-    translateTitles(items.map((n) => n.title))
-      .then((map) => live && setRu((cur) => ({ ...cur, ...map })))
-      .catch(() => undefined);
+    setRuError('');
+    translateTitles(
+      items.slice(0, shown).map((n) => n.title),
+      (part) => live && setRu((cur) => ({ ...cur, ...part })),
+    ).catch((e) => live && setRuError(e instanceof Error ? e.message : String(e)));
     return () => {
       live = false;
     };
-  }, [items, hasKey]);
+  }, [items, shown, hasKey, ruTry]);
 
   const search = () => {
     const q = query.trim();
@@ -560,7 +573,7 @@ function TagesschauShelf({ onSave }: SaveProps) {
     setRessort(null);
     void run(async () => {
       const found = await tagesschauSearch(q);
-      setItems(found);
+      showList(found);
       if (!found.length) throw new Error(`По запросу «${q}» статей не нашлось`);
     });
   };
@@ -594,8 +607,16 @@ function TagesschauShelf({ onSave }: SaveProps) {
       </div>
       {error && <p className="error">{error}</p>}
       {busy && <p className="muted">Загружаю…</p>}
+      {ruError && (
+        <p className="muted small">
+          Не все заголовки перевелись: {ruError}{' '}
+          <button className="link" onClick={() => setRuTry((n) => n + 1)}>
+            Повторить
+          </button>
+        </p>
+      )}
       <ul className="list">
-        {items.map((n) => (
+        {items.slice(0, shown).map((n) => (
           <li key={n.details}>
             <button className="list-item" disabled={busy} onClick={() => void run(async () => onSave(await tagesschauArticle(n)))}>
               {n.topline && <span className="muted small">{n.topline}</span>}
@@ -606,6 +627,11 @@ function TagesschauShelf({ onSave }: SaveProps) {
           </li>
         ))}
       </ul>
+      {shown < items.length && (
+        <button className="link" onClick={() => setShown((n) => n + NEWS_PAGE)}>
+          Показать ещё (осталось {items.length - shown})
+        </button>
+      )}
     </>
   );
 }
